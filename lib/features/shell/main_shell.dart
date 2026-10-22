@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../widgets/st_widgets.dart';
+import '../../screens/home_screen.dart';
 import '../profile/profile_page.dart';
 
 class MainShell extends StatefulWidget {
@@ -15,7 +16,7 @@ class _MainShellState extends State<MainShell> {
 
   // FR-30: Beranda, Anggaran, Alat, Eksplorasi, Profil
   final _pages = const [
-    _Placeholder('Beranda', Icons.home_outlined), // Anggota 2
+    HomeScreen(), // Anggota 2
     _Placeholder(
       'Anggaran',
       Icons.account_balance_wallet_outlined,

@@ -9,13 +9,24 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # Anggota 1 (auth, profil, biometrik)
   http: ^1.2.2
   http_parser: ^4.1.0
   flutter_secure_storage: ^9.2.4
   local_auth: ^2.3.0
   image_picker: ^1.1.2
-  google_fonts: ^6.2.1
   shared_preferences: ^2.3.2
+  # Anggota 2 (checklist, itinerary, catatan, quiz, notifikasi)
+  flutter_local_notifications: 17.2.4
+  timezone: 0.9.4
+  sqflite: ^2.4.4+2
+  sqflite_common_ffi_web: ^1.2.0
+  path: ^1.9.1
+  intl: ^0.20.3
+  # dipakai bersama
+  google_fonts: ^6.3.2
 
 dev_dependencies:
   flutter_test:
