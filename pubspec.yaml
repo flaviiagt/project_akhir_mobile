@@ -1,6 +1,6 @@
 name: studytrip
 description: "A new Flutter project."
-publish_to: 'none'
+publish_to: "none"
 version: 0.1.0+1
 
 environment:
@@ -9,6 +9,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  http: ^1.2.2
+  http_parser: ^4.1.0
+  flutter_secure_storage: ^9.2.4
+  local_auth: ^2.3.0
+  image_picker: ^1.1.2
+  google_fonts: ^6.2.1
+  shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:

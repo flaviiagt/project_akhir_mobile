@@ -1,0 +1,190 @@
+import 'package:flutter/material.dart';
+
+import '../../../core/api_client.dart';
+import '../../../core/app_theme.dart';
+import '../../../core/auth_service.dart';
+import '../../../widgets/st_widgets.dart';
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final _form = GlobalKey<FormState>();
+  final _email = TextEditingController();
+  final _pass = TextEditingController();
+  bool _loading = false;
+  bool _hide = true;
+  bool _bioReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initBio();
+  }
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _pass.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initBio() async {
+    final ready =
+        await AuthService.isBiometricEnabled() &&
+        await AuthService.biometricAvailable();
+    if (mounted) setState(() => _bioReady = ready);
+  }
+
+  void _snack(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _login() async {
+    if (!_form.currentState!.validate()) return;
+    setState(() => _loading = true);
+    try {
+      await AuthService.login(_email.text.trim(), _pass.text);
+      if (mounted) Navigator.pushReplacementNamed(context, '/home');
+    } on ApiException catch (e) {
+      _snack(e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loginBio() async {
+    setState(() => _loading = true);
+    try {
+      final u = await AuthService.loginWithBiometric();
+      if (u != null && mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        _snack('Biometrik gagal, gunakan kata sandi');
+      }
+    } on ApiException catch (e) {
+      _snack(e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          child: Form(
+            key: _form,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const StAuthHeader(),
+                const SizedBox(height: 28),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: StLogo(size: 56),
+                ),
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Selamat Datang\nKembali! 👋',
+                    style: AppText.headline(34, weight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Masuk untuk melanjutkan persiapan studimu.',
+                    style: TextStyle(color: AppColors.muted),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                StCard(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      StField(
+                        label: 'Email',
+                        controller: _email,
+                        icon: Icons.mail_outline,
+                        hint: 'contoh@email.com',
+                        keyboardType: TextInputType.emailAddress,
+                        validator: (v) => AuthService.isValidEmail(v)
+                            ? null
+                            : 'Email tidak valid',
+                      ),
+                      const SizedBox(height: 16),
+                      StField(
+                        label: 'Kata Sandi',
+                        controller: _pass,
+                        icon: Icons.lock_outline,
+                        hint: '••••••••',
+                        obscure: _hide,
+                        suffix: IconButton(
+                          icon: Icon(
+                            _hide
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                          onPressed: () => setState(() => _hide = !_hide),
+                        ),
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? 'Kata sandi wajib diisi'
+                            : null,
+                      ),
+                      const SizedBox(height: 24),
+                      StButton(
+                        label: 'Masuk ke Akun',
+                        loading: _loading,
+                        onPressed: _login,
+                      ),
+                      if (_bioReady) ...[
+                        const SizedBox(height: 12),
+                        StButton(
+                          label: 'Gunakan Face ID / Sidik Jari',
+                          icon: Icons.fingerprint,
+                          outlined: true,
+                          onPressed: _loginBio,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Center(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Text(
+                        'Belum punya akun? ',
+                        style: TextStyle(color: AppColors.muted),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.pushNamed(context, '/register'),
+                        child: const Text(
+                          'Daftar Sekarang',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
