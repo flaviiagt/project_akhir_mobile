@@ -14,6 +14,7 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController();
+  final _username = TextEditingController();
   final _email = TextEditingController();
   final _pass = TextEditingController();
   final _confirm = TextEditingController();
@@ -23,6 +24,7 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   void dispose() {
     _name.dispose();
+    _username.dispose();
     _email.dispose();
     _pass.dispose();
     _confirm.dispose();
@@ -40,6 +42,7 @@ class _RegisterPageState extends State<RegisterPage> {
     try {
       await AuthService.register(
         _name.text.trim(),
+        _username.text.trim().toLowerCase(),
         _email.text.trim(),
         _pass.text,
       );
@@ -104,6 +107,15 @@ class _RegisterPageState extends State<RegisterPage> {
                           if (t.length < 2) return 'Nama minimal 2 karakter';
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 16),
+                      StField(
+                        label: 'Username',
+                        controller: _username,
+                        icon: Icons.alternate_email,
+                        hint: 'huruf kecil, angka, _ atau .',
+                        validator: (v) =>
+                            AuthService.isValidUsername(v) ? null : 'Username 3-20 karakter: huruf, angka, titik, atau _',
                       ),
                       const SizedBox(height: 16),
                       StField(

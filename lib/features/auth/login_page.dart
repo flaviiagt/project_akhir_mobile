@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/api_client.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/auth_service.dart';
+import '../../../services/notification_service.dart';
 import '../../../widgets/st_widgets.dart';
 
 class LoginPage extends StatefulWidget {
@@ -13,11 +14,12 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _form = GlobalKey<FormState>();
-  final _email = TextEditingController();
+  final _id = TextEditingController();
   final _pass = TextEditingController();
   bool _loading = false;
   bool _hide = true;
   bool _bioReady = false;
+  String _bioLabel = 'Biometrik';
 
   @override
   void initState() {
@@ -27,7 +29,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
-    _email.dispose();
+    _id.dispose();
     _pass.dispose();
     super.dispose();
   }
@@ -36,7 +38,13 @@ class _LoginPageState extends State<LoginPage> {
     final ready =
         await AuthService.isBiometricEnabled() &&
         await AuthService.biometricAvailable();
-    if (mounted) setState(() => _bioReady = ready);
+    final label = await AuthService.biometricLabel();
+    if (mounted) {
+      setState(() {
+        _bioReady = ready;
+        _bioLabel = label;
+      });
+    }
   }
 
   void _snack(String m) {
@@ -48,7 +56,8 @@ class _LoginPageState extends State<LoginPage> {
     if (!_form.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      await AuthService.login(_email.text.trim(), _pass.text);
+      final user = await AuthService.login(_id.text.trim(), _pass.text);
+      await NotificationService.instance.welcome(name: user['name'] as String?);
       if (mounted) Navigator.pushReplacementNamed(context, '/home');
     } on ApiException catch (e) {
       _snack(e.message);
@@ -62,9 +71,10 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final u = await AuthService.loginWithBiometric();
       if (u != null && mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
+        await NotificationService.instance.welcome(name: u['name'] as String?);
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
       } else {
-        _snack('Biometrik gagal, gunakan kata sandi');
+        _snack('Verifikasi gagal, gunakan kata sandi');
       }
     } on ApiException catch (e) {
       _snack(e.message);
@@ -112,14 +122,14 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     children: [
                       StField(
-                        label: 'Email',
-                        controller: _email,
-                        icon: Icons.mail_outline,
-                        hint: 'contoh@email.com',
+                        label: 'Email atau Username',
+                        controller: _id,
+                        icon: Icons.person_outline,
+                        hint: 'email atau username',
                         keyboardType: TextInputType.emailAddress,
-                        validator: (v) => AuthService.isValidEmail(v)
-                            ? null
-                            : 'Email tidak valid',
+                        validator: (v) => (v == null || v.trim().length < 3)
+                            ? 'Isi email atau username'
+                            : null,
                       ),
                       const SizedBox(height: 16),
                       StField(
@@ -149,7 +159,7 @@ class _LoginPageState extends State<LoginPage> {
                       if (_bioReady) ...[
                         const SizedBox(height: 12),
                         StButton(
-                          label: 'Gunakan Face ID / Sidik Jari',
+                          label: 'Masuk dengan $_bioLabel',
                           icon: Icons.fingerprint,
                           outlined: true,
                           onPressed: _loginBio,

@@ -1,12 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/user_events.dart';
-import '../../../data/app_db.dart';
-import '../../../data/models.dart' show fmtDate;
-import '../../../data/universities.dart';
-import '../../../widgets/common.dart' show dateFmt;
-import '../../../widgets/university_picker.dart';
+
 import '../../../core/api_client.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/auth_service.dart';
@@ -25,8 +20,8 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _loading = true;
   bool _bioEnabled = false;
   bool _bioAvailable = false;
+  String _bioLabel = 'Biometrik';
   int _photoVersion = DateTime.now().millisecondsSinceEpoch;
-  DateTime? _departure;
 
   @override
   void initState() {
@@ -44,13 +39,13 @@ class _ProfilePageState extends State<ProfilePage> {
       final u = await AuthService.me();
       final en = await AuthService.isBiometricEnabled();
       final av = await AuthService.biometricAvailable();
-      final dep = await AppDb.instance.getSetting('departure');
+      final label = await AuthService.biometricLabel();
       if (!mounted) return;
       setState(() {
         _user = u;
         _bioEnabled = en;
         _bioAvailable = av;
-        _departure = dep == null ? null : DateTime.tryParse(dep);
+        _bioLabel = label;
         _loading = false;
       });
     } on ApiException catch (e) {
@@ -111,7 +106,6 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       await ApiClient.uploadBytes('upload_photo.php', 'photo', bytes, filename);
       _photoVersion = DateTime.now().millisecondsSinceEpoch;
-      profileVersion.value++;
       _snack('Foto profil diperbarui');
       _load();
     } on ApiException catch (e) {
@@ -120,11 +114,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   // ---------- Edit profil ----------
-    Future<void> _edit() async {
+  Future<void> _edit() async {
     final formKey = GlobalKey<FormState>();
     final name = TextEditingController(text: _user!['name']);
-    University? uni = findUniversity(_user!['program'] as String?);
-    DateTime? date = _departure;
+    final program = TextEditingController(text: _user!['program'] ?? '');
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -132,100 +125,56 @@ class _ProfilePageState extends State<ProfilePage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            24,
-            24,
-            MediaQuery.of(ctx).viewInsets.bottom + 24,
-          ),
-          child: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Edit Profil', style: AppText.headline(22)),
-                  const SizedBox(height: 20),
-                  TextFormField(
-                    controller: name,
-                    decoration: const InputDecoration(
-                      labelText: 'Nama',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                    validator: (v) {
-                      final t = v?.trim() ?? '';
-                      if (t.isEmpty) return 'Nama wajib diisi';
-                      if (t.length < 2) return 'Nama minimal 2 karakter';
-                      if (t.length > 50) return 'Nama maksimal 50 karakter';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  // Program StudyTrip = kampus tujuan (ikut tampil di Beranda)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(28),
-                    onTap: () async {
-                      final p = await pickUniversity(ctx, selected: uni?.name);
-                      if (p != null) setS(() => uni = p);
-                    },
-                    child: InputDecorator(
-                      isEmpty: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Program StudyTrip (kampus tujuan)',
-                        prefixIcon: Icon(Icons.school_outlined),
-                        suffixIcon: Icon(Icons.arrow_drop_down),
-                      ),
-                      child: Text(
-                        uni?.name ?? 'Pilih kampus tujuan',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: uni == null ? AppColors.muted : AppColors.ink,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  InkWell(
-                    borderRadius: BorderRadius.circular(28),
-                    onTap: () async {
-                      final p = await showDatePicker(
-                        context: ctx,
-                        initialDate: date ?? DateTime.now(),
-                        firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                        lastDate: DateTime.now().add(const Duration(days: 365 * 6)),
-                      );
-                      if (p != null) setS(() => date = p);
-                    },
-                    child: InputDecorator(
-                      isEmpty: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Tanggal keberangkatan',
-                        prefixIcon: Icon(Icons.event),
-                      ),
-                      child: Text(
-                        date == null ? 'Pilih tanggal' : dateFmt.format(date!),
-                        style: TextStyle(
-                          color: date == null ? AppColors.muted : AppColors.ink,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  StButton(
-                    label: 'Simpan',
-                    onPressed: () {
-                      if (formKey.currentState!.validate()) {
-                        Navigator.pop(ctx, true);
-                      }
-                    },
-                  ),
-                ],
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Edit Profil', style: AppText.headline(22)),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: name,
+                decoration: const InputDecoration(
+                  labelText: 'Nama',
+                  prefixIcon: Icon(Icons.person_outline),
+                ),
+                validator: (v) {
+                  final t = v?.trim() ?? '';
+                  if (t.isEmpty) return 'Nama wajib diisi';
+                  if (t.length < 2) return 'Nama minimal 2 karakter';
+                  if (t.length > 50) return 'Nama maksimal 50 karakter';
+                  return null;
+                },
               ),
-            ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: program,
+                decoration: const InputDecoration(
+                  labelText: 'Program StudyTrip (mis. Tokyo 2027)',
+                  prefixIcon: Icon(Icons.school_outlined),
+                ),
+                validator: (v) => (v != null && v.trim().length > 60)
+                    ? 'Maksimal 60 karakter'
+                    : null,
+              ),
+              const SizedBox(height: 20),
+              StButton(
+                label: 'Simpan',
+                onPressed: () {
+                  if (formKey.currentState!.validate()) {
+                    Navigator.pop(ctx, true);
+                  }
+                },
+              ),
+            ],
           ),
         ),
       ),
@@ -234,12 +183,8 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       await ApiClient.post('profile_update.php', {
         'name': name.text.trim(),
-        'program': uni?.name ?? '',
+        'program': program.text.trim(),
       }, auth: true);
-      if (date != null) {
-        await AppDb.instance.setSetting('departure', fmtDate(date)!);
-      }
-      profileVersion.value++;
       _snack('Profil disimpan');
       _load();
     } on ApiException catch (e) {
@@ -247,7 +192,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-    // ---------- Biometrik ----------
+  // ---------- Biometrik ----------
   Future<String?> _askPassword() {
     final c = TextEditingController();
     return showDialog<String>(
@@ -287,9 +232,9 @@ class _ProfilePageState extends State<ProfilePage> {
       final ok = await AuthService.enableBiometric(_user!['email'], pass);
       if (ok) {
         setState(() => _bioEnabled = true);
-        _snack('Login biometrik diaktifkan');
+        _snack('Login $_bioLabel diaktifkan');
       } else {
-        _snack('Verifikasi biometrik gagal');
+        _snack('Verifikasi gagal');
       }
     } on ApiException catch (e) {
       _snack(e.message);
@@ -330,7 +275,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final photoPath = ApiClient.fileUrl(_user!['photo']);
     final photo = photoPath == null ? null : '$photoPath?v=$_photoVersion';
     final program = _user!['program'] as String?;
-    final uni = findUniversity(program);
+    final username = (_user!['username'] ?? '').toString();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
@@ -348,16 +293,17 @@ class _ProfilePageState extends State<ProfilePage> {
                     color: AppColors.container,
                     shape: BoxShape.circle,
                   ),
-                  child: CircleAvatar(
-                    backgroundColor: const Color(0xFFE4E2DF),
-                    backgroundImage: photo != null ? NetworkImage(photo) : null,
-                    child: photo == null
-                        ? const Icon(
-                            Icons.person,
-                            size: 48,
-                            color: AppColors.secondary,
+                  child: ClipOval(
+                    child: photo != null
+                        ? Image.network(
+                            photo,
+                            width: 96,
+                            height: 96,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const StDefaultAvatar(size: 96),
                           )
-                        : null,
+                        : const StDefaultAvatar(size: 96),
                   ),
                 ),
                 Positioned(
@@ -396,6 +342,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            if (username.isNotEmpty)
+              Text(
+                '@$username',
+                style: const TextStyle(color: AppColors.muted, fontSize: 13),
+              ),
             const SizedBox(height: 14),
             Material(
               color: AppColors.container,
@@ -430,58 +381,47 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 24),
 
-                // 2. Program StudyTrip (sumber tujuan & tanggal untuk Beranda)
+        // 2. Program StudyTrip
         StCard(
           padding: const EdgeInsets.all(20),
-          child: InkWell(
-            onTap: _edit,
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE3F7F2),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.flight_takeoff,
-                    color: Color(0xFF00796B),
-                    size: 21,
-                  ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F7F2),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'PROGRAM STUDYTRIP',
-                        style: AppText.label(color: AppColors.primary),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        uni?.name ??
-                            ((program == null || program.isEmpty)
-                                ? 'Belum diisi, ketuk untuk memilih kampus'
-                                : program),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (uni != null)
-                        Text(uni.place,
-                            style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-                      if (_departure != null)
-                        Text('Berangkat ${dateFmt.format(_departure!)}',
-                            style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-                    ],
-                  ),
+                child: const Icon(
+                  Icons.flight_takeoff,
+                  color: Color(0xFF00796B),
+                  size: 21,
                 ),
-                const Icon(Icons.chevron_right, color: Color(0xFF9AA9B7)),
-              ],
-            ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'PROGRAM STUDYTRIP',
+                      style: AppText.label(color: AppColors.primary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      (program == null || program.isEmpty)
+                          ? 'Belum diisi, ketuk Edit Profil'
+                          : program,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 24),
@@ -513,7 +453,7 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icons.fingerprint,
             title: 'Login Biometrik / Face ID',
             subtitle: _bioAvailable
-                ? 'Akses cepat dan aman'
+                ? 'Akses cepat dengan $_bioLabel'
                 : (kIsWeb
                       ? 'Tidak tersedia di browser'
                       : 'Tidak tersedia di perangkat ini'),

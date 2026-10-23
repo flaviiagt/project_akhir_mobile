@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/app_theme.dart';
 import '../../../core/auth_service.dart';
+import '../../../services/notification_service.dart';
 
 Future<void> confirmLogout(BuildContext context) async {
   final ok = await showDialog<bool>(
@@ -29,6 +30,8 @@ Future<void> confirmLogout(BuildContext context) async {
     ),
   );
   if (ok == true) {
+    await NotificationService.instance
+        .cancelAll(); // batalkan pengingat akun ini
     await AuthService.logout();
     if (context.mounted) {
       Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
