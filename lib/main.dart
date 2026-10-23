@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 import 'core/app_routes.dart';
 import 'core/app_theme.dart';
+import 'core/current_user.dart';
 import 'data/app_db.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/register_page.dart';
@@ -22,6 +23,7 @@ Future<void> main() async {
   try {
     if (kIsWeb) databaseFactory = databaseFactoryFfiWeb;
     await initializeDateFormatting('id_ID');
+    await CurrentUser.restore(); // siapa pemilik data lokal (juga saat offline)
     await AppDb.instance.db;
   } catch (e, st) {
     startupError = '$e\n\n$st';

@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 
+import '../services/notification_service.dart';
 import 'api_client.dart';
+import 'current_user.dart';
 
 class AuthService {
   static const _s = FlutterSecureStorage();
@@ -42,6 +44,7 @@ class AuthService {
       rethrow;
     }
     await ApiClient.saveToken(r['token']);
+    await CurrentUser.set(r['user']); // Anggota 2: kunci data lokal per akun
 
     // Jika akun yang login berbeda dari akun biometrik, hapus data biometrik lama
     final bioEmail = await _s.read(key: 'bio_email');
@@ -53,10 +56,16 @@ class AuthService {
 
   static Future<Map<String, dynamic>> me({bool redirect = true}) async {
     final r = await ApiClient.get('me.php', auth: true, redirect: redirect);
-    return r['user'];
+    final user = r['user'] as Map<String, dynamic>;
+    await CurrentUser.set(user); // Anggota 2: kunci data lokal per akun
+    return user;
   }
 
-  static Future<void> logout() => ApiClient.clearToken();
+  static Future<void> logout() async {
+    await ApiClient.clearToken();
+    await CurrentUser.clear(); // Anggota 2: data lokal akun ini tidak lagi terlihat
+    await NotificationService.instance.cancelAll();
+  }
 
   // ---------- Biometrik ----------
   static Future<bool> biometricAvailable() async {

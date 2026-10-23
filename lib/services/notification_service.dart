@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import '../core/current_user.dart';
 import '../data/app_db.dart';
 
 /// Pengingat deadline checklist: H-1 dan hari-H pukul 09.00 (zona Asia/Jakarta).
@@ -30,10 +31,17 @@ class NotificationService {
     }
   }
 
-  /// Jadwalkan ulang semua pengingat dari item checklist yang belum selesai.
+  /// Batalkan semua pengingat (dipanggil saat logout).
+  Future<void> cancelAll() async {
+    if (!_ready) return;
+    await _plugin.cancelAll();
+  }
+
+  /// Jadwalkan ulang pengingat dari checklist akun yang sedang login.
   Future<void> rescheduleAll() async {
     if (!_ready) return;
     await _plugin.cancelAll();
+    if (CurrentUser.id == null) return; // belum login: tidak ada pengingat
     final items = await AppDb.instance.checklist();
     const details = NotificationDetails(
       android: AndroidNotificationDetails(

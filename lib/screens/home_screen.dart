@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import '../core/api_client.dart';
+import '../core/user_events.dart';
 import '../data/app_db.dart';
 import '../data/models.dart';
+import '../data/universities.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'checklist_screen.dart';
@@ -8,11 +11,10 @@ import 'itinerary_screen.dart';
 import 'notes_screen.dart';
 import 'quiz_screen.dart';
 
-// TODO(integrasi): ambil nama dari sesi login Member 1.
-const kUserName = 'Mahasiswa';
-
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  /// Dipanggil saat foto profil di header diketuk (pindah ke tab Profil).
+  final VoidCallback? onProfileTap;
+  const HomeScreen({super.key, this.onProfileTap});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -21,19 +23,24 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ChecklistItem> _items = [];
   int _itinCount = 0, _noteCount = 0;
   String? _best;
-  String _destination = '';
+  String? _program; // dari Profil (server) = kampus tujuan
   DateTime? _departure;
+  String? _userName;
+  String? _photoUrl;
 
   @override
   void initState() {
     super.initState();
     AppDb.version.addListener(_load);
+    profileVersion.addListener(_loadUser);
     _load();
+    _loadUser();
   }
 
   @override
   void dispose() {
     AppDb.version.removeListener(_load);
+    profileVersion.removeListener(_loadUser);
     super.dispose();
   }
 
@@ -43,7 +50,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final itin = await db.query('itinerary');
     final notes = await db.query('notes');
     final scores = await db.query('quiz_scores', orderBy: 'score DESC');
-    final dest = await db.getSetting('destination');
     final dep = await db.getSetting('departure');
     if (!mounted) return;
     setState(() {
@@ -51,51 +57,64 @@ class _HomeScreenState extends State<HomeScreen> {
       _itinCount = itin.length;
       _noteCount = notes.length;
       _best = scores.isEmpty ? null : '${scores.first['score']}/${scores.first['total']}';
-      _destination = dest ?? '';
       _departure = dep == null ? null : DateTime.tryParse(dep);
     });
   }
 
-  Future<void> _editTrip() async {
-    final ctrl = TextEditingController(text: _destination);
-    DateTime? date = _departure;
-    await showFormSheet<void>(context, (c) => StatefulBuilder(builder: (c, setS) {
-          return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Tujuan & Keberangkatan', style: Theme.of(c).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Tujuan studi')),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.event),
-              label: Text(date == null ? 'Pilih tanggal keberangkatan' : dateFmt.format(date!)),
-              onPressed: () async {
-                final p = await showDatePicker(
-                  context: c,
-                  initialDate: date ?? DateTime.now(),
-                  firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                  lastDate: DateTime.now().add(const Duration(days: 365 * 6)),
-                );
-                if (p != null) setS(() => date = p);
-              },
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () async {
-                if (ctrl.text.trim().isEmpty) {
-                  showSnack(c, 'Tujuan studi tidak boleh kosong');
-                  return;
-                }
-                await AppDb.instance.setSetting('destination', ctrl.text.trim());
-                if (date != null) await AppDb.instance.setSetting('departure', fmtDate(date)!);
-                if (c.mounted) Navigator.pop(c);
-              },
-              child: const Text('Simpan'),
-            ),
-          ]);
-        }));
+  /// Nama, foto, dan program dari server (me.php). Gagal/offline -> tampilan bawaan.
+  Future<void> _loadUser() async {
+    try {
+      final r = await ApiClient.get('me.php', auth: true, redirect: false);
+      final u = r['user'] as Map<String, dynamic>?;
+      if (u == null || !mounted) return;
+      final photo = ApiClient.fileUrl(u['photo'] as String?);
+      setState(() {
+        _userName = u['name'] as String?;
+        _program = u['program'] as String?;
+        _photoUrl = photo == null ? null : '$photo?v=${DateTime.now().millisecondsSinceEpoch}';
+      });
+    } catch (_) {}
   }
 
   void _open(Widget page) => Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+
+  Widget _avatarFallback() => Container(
+        color: kPrimary,
+        child: const Icon(Icons.person, color: Colors.white, size: 20),
+      );
+
+  /// Foto/ilustrasi hero mengikuti kampus tujuan.
+  Widget _heroBackground(University? uni) {
+    Widget art() => Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [uni?.c1 ?? kPrimary, uni?.c2 ?? kNavy],
+            ),
+          ),
+          child: Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 40, right: 0),
+              child: Icon(uni?.icon ?? Icons.public, size: 170, color: const Color(0x1FFFFFFF)),
+            ),
+          ),
+        );
+    if (uni?.asset != null) {
+      return Image.asset(uni!.asset!,
+          fit: BoxFit.cover, width: double.infinity, height: double.infinity, errorBuilder: (_, __, ___) => art());
+    }
+    if (uni?.image != null) {
+      return Image.network(uni!.image!,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          errorBuilder: (_, __, ___) => art(),
+          loadingBuilder: (c, child, p) => p == null ? child : art());
+    }
+    return art();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,13 +127,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final daysLeft = _departure == null ? null : daysUntil(_departure!);
     final nextDays = next == null ? null : daysUntil(next.deadline!);
 
+    final uni = findUniversity(_program);
+    // Perjalanan aktif selama tanggal keberangkatan belum terlewati.
+    final active = daysLeft == null || daysLeft >= 0;
+    final first = (_userName ?? '').trim().split(' ').first;
+
     String countdown;
     if (daysLeft == null) {
-      countdown = 'Atur tanggal keberangkatanmu';
-    } else if (daysLeft >= 0) {
+      countdown = 'Atur tanggal keberangkatan di Profil';
+    } else if (daysLeft > 0) {
       countdown = 'Tersisa $daysLeft hari menuju keberangkatan';
+    } else if (daysLeft == 0) {
+      countdown = 'Berangkat hari ini';
     } else {
-      countdown = 'Tanggal keberangkatan sudah lewat';
+      countdown = 'Tanggal keberangkatan sudah lewat. Ubah di Profil.';
     }
 
     String deadlineText = '';
@@ -153,91 +179,105 @@ class _HomeScreenState extends State<HomeScreen> {
                     context, next == null ? 'Tidak ada pengingat aktif' : 'Berikutnya: ${next.title} • $deadlineText'),
                 icon: const Icon(Icons.notifications_none, color: kSecondary),
               ),
-              Container(
-                width: 32,
-                height: 32,
-                decoration: const BoxDecoration(color: kPrimary, shape: BoxShape.circle),
-                child: const Icon(Icons.person, color: Colors.white, size: 18),
+              // Foto profil dari server
+              InkWell(
+                onTap: widget.onProfileTap,
+                customBorder: const CircleBorder(),
+                child: ClipOval(
+                  child: SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: _photoUrl == null
+                        ? _avatarFallback()
+                        : Image.network(_photoUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _avatarFallback()),
+                  ),
+                ),
               ),
             ]),
             const SizedBox(height: 16),
 
-            // Badge + sapaan
+            // Badge status + sapaan
             Wrap(spacing: 8, runSpacing: 6, children: [
-              const Pill('PERJALANAN AKTIF', bg: kAmberTint, fg: kAmberDark),
-              if (_destination.isNotEmpty) Pill('🌍 $_destination', bg: kBlueTint, fg: kSecondary),
+              active
+                  ? const Pill('PERJALANAN AKTIF', bg: kAmberTint, fg: kAmberDark)
+                  : const Pill('TIDAK AKTIF', bg: Color(0xFFEDEEF0), fg: kSecondary),
+              if (uni != null) Pill('🌍 ${uni.name}', bg: kBlueTint, fg: kSecondary),
             ]),
             const SizedBox(height: 10),
-            Text('Halo, $kUserName! 👋', style: headlineStyle(30, height: 1.15)),
+            Text('Halo, ${first.isEmpty ? 'Mahasiswa' : first}! 👋', style: headlineStyle(30, height: 1.15)),
             const SizedBox(height: 4),
             Text(
-              _destination.isEmpty ? 'Wujudkan mimpimu kuliah di luar negeri.' : 'Wujudkan mimpimu kuliah di $_destination.',
+              uni == null ? 'Pilih program StudyTrip di tab Profil.' : 'Wujudkan mimpimu kuliah di ${uni.name}.',
               style: const TextStyle(color: kSecondary, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 18),
 
-            // Kartu hero
+            // Kartu hero (foto berganti sesuai kampus tujuan)
             ClipRRect(
               borderRadius: BorderRadius.circular(32),
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [kNavy, Color(0xFF14526B), kPrimary],
+              child: Stack(children: [
+                Positioned.fill(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 450),
+                    child: KeyedSubtree(
+                      key: ValueKey(uni?.name ?? 'none'),
+                      child: _heroBackground(uni),
+                    ),
                   ),
                 ),
-                child: Stack(children: [
-                  const Positioned(
-                    right: -28,
-                    top: -20,
-                    child: Icon(Icons.public, size: 170, color: Color(0x1FFFFFFF)),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Flexible(
-                          child: Pill(
-                            _departure == null ? 'Atur tanggal' : dateFmt.format(_departure!),
-                            bg: const Color(0xE6FFF7ED),
-                            fg: kAmberDark,
-                            icon: Icons.calendar_month,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          tooltip: 'Ubah tujuan',
-                          onPressed: _editTrip,
-                          style: IconButton.styleFrom(backgroundColor: const Color(0x33FFFFFF)),
-                          icon: const Icon(Icons.edit_outlined, color: Colors.white, size: 20),
-                        ),
-                      ]),
-                      const SizedBox(height: 36),
-                      const Pill('TARGET UTAMA', bg: kTertiary, fg: kOnAmber),
-                      const SizedBox(height: 10),
-                      Text(
-                        _destination.isEmpty ? 'Belum ada tujuan' : _destination,
-                        style: headlineStyle(26, color: Colors.white, height: 1.15),
+                const Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: [0.0, 0.5, 1.0],
+                        colors: [Color(0x1A000000), Color(0x80101E2C), Color(0xF20F2537)],
                       ),
-                      const SizedBox(height: 6),
-                      Text(countdown,
-                          style: const TextStyle(color: Color(0xE6FFFFFF), fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(backgroundColor: kTertiary, foregroundColor: kOnAmber),
-                          onPressed: () => _open(const ChecklistScreen()),
-                          icon: const Icon(Icons.arrow_forward, size: 18),
-                          iconAlignment: IconAlignment.end,
-                          label: const Text('Buka Checklist Persiapan'),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Flexible(
+                        child: Pill(
+                          _departure == null ? 'Belum ada tanggal' : dateFmt.format(_departure!),
+                          bg: const Color(0xE6FFF7ED),
+                          fg: kAmberDark,
+                          icon: Icons.calendar_month,
                         ),
                       ),
                     ]),
-                  ),
-                ]),
-              ),
+                    const SizedBox(height: 64),
+                    const Pill('TARGET UTAMA', bg: kTertiary, fg: kOnAmber),
+                    const SizedBox(height: 10),
+                    Text(
+                      uni?.name ?? 'Belum ada tujuan',
+                      style: headlineStyle(26, color: Colors.white, height: 1.15),
+                    ),
+                    const SizedBox(height: 6),
+                    if (uni != null)
+                      Text(uni.place, style: const TextStyle(color: Color(0xE6FFFFFF), fontWeight: FontWeight.w500))
+                    else
+                      const Text('Pilih program di tab Profil',
+                          style: TextStyle(color: Color(0xE6FFFFFF), fontWeight: FontWeight.w500)),
+                    Text(countdown, style: const TextStyle(color: Color(0xCCFFFFFF), fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(backgroundColor: kTertiary, foregroundColor: kOnAmber),
+                        onPressed: () => _open(const ChecklistScreen()),
+                        icon: const Icon(Icons.arrow_forward, size: 18),
+                        iconAlignment: IconAlignment.end,
+                        label: const Text('Buka Checklist Persiapan'),
+                      ),
+                    ),
+                  ]),
+                ),
+              ]),
             ),
             const SizedBox(height: 16),
 
