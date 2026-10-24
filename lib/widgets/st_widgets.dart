@@ -60,11 +60,15 @@ class StAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final bool showActions;
   final bool automaticallyImplyLeading;
+
+  /// Aksi tambahan khusus halaman, tampil sebelum lonceng.
+  final List<Widget> extraActions;
   const StAppBar({
     super.key,
     required this.title,
     this.showActions = true,
     this.automaticallyImplyLeading = true,
+    this.extraActions = const [],
   });
 
   @override
@@ -105,11 +109,11 @@ class StAppBar extends StatelessWidget implements PreferredSizeWidget {
           ),
         ],
       ),
-      actions: showActions
-          ? const [
-              // Lonceng: badge + daftar deadline (FR-26), dari Anggota 2
-              ReminderBell(),
-              SizedBox(width: 8),
+      actions: (showActions || extraActions.isNotEmpty)
+          ? [
+              ...extraActions,
+              // Lonceng: badge + halaman notifikasi (FR-26), dari Anggota 2
+              if (showActions) ...const [ReminderBell(), SizedBox(width: 8)],
             ]
           : null,
     );

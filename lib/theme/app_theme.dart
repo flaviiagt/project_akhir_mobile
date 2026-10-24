@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+export 'app_colors.dart';
+
 // Design system "Global Explorer" (Stitch DESIGN.md):
 // Oceanic Teal, Admiralty Navy, Sunlit Amber, Warm Cream.
 const kNavy = Color(0xFF0F2537);

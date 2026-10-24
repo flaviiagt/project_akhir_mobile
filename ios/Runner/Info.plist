@@ -4,6 +4,12 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>StudyTrip menggunakan kamera untuk menerjemahkan tulisan dari foto dan foto profil.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>StudyTrip mengakses foto yang kamu pilih untuk menerjemahkan tulisannya dan foto profil.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>StudyTrip memakai lokasimu untuk menghitung jarak ke kampus tujuan.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../core/current_user.dart';
 import '../services/sync_service.dart';
+import 'budget_schema.dart';
 import 'models.dart';
 
 /// Penyimpanan lokal (SQLite), terpisah per akun lewat kolom user_id, dan
@@ -40,7 +41,8 @@ class AppDb {
     final path = kIsWeb ? 'studytrip.db' : join(await getDatabasesPath(), 'studytrip.db');
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
+      onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
       onCreate: (d, v) => _createTables(d),
       onUpgrade: (d, oldV, newV) async {
         if (oldV < 2) {
@@ -50,12 +52,13 @@ class AppDb {
           return;
         }
         if (oldV < 3) await _migrateV2toV3(d); // v2 -> v3: kolom sinkronisasi cloud
+        if (oldV < 4) await createBudgetTables(d); // v3 -> v4: tabel Anggaran (Anggota 3)
       },
     );
   }
 
   Future<void> _dropTables(Database d) async {
-    for (final t in ['checklist', 'itinerary', 'notes', 'quiz_scores', 'settings']) {
+    for (final t in ['expenses', 'budgets', 'checklist', 'itinerary', 'notes', 'quiz_scores', 'settings']) {
       await d.execute('DROP TABLE IF EXISTS $t');
     }
   }
@@ -85,6 +88,7 @@ class AppDb {
     for (final t in syncedTables) {
       await d.execute('CREATE UNIQUE INDEX idx_${t}_rid ON $t(user_id, rid)');
     }
+    await createBudgetTables(d); // Anggota 3: Anggaran & Pengeluaran
   }
 
   /// Data lama dipertahankan; semuanya ditandai dirty supaya terkirim ke cloud.
