@@ -57,6 +57,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _loading = true);
     try {
       final user = await AuthService.login(_id.text.trim(), _pass.text);
+      await NotificationService.instance.rescheduleAll();
       await NotificationService.instance.welcome(name: user['name'] as String?);
       if (mounted) Navigator.pushReplacementNamed(context, '/home');
     } on ApiException catch (e) {
@@ -71,6 +72,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final u = await AuthService.loginWithBiometric();
       if (u != null && mounted) {
+        await NotificationService.instance.rescheduleAll();
         await NotificationService.instance.welcome(name: u['name'] as String?);
         if (mounted) Navigator.pushReplacementNamed(context, '/home');
       } else {

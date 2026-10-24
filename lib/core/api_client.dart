@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import 'app_routes.dart';
+import 'current_user.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -21,7 +22,7 @@ class ApiClient {
   // HP asli (1 WiFi) : http://192.168.100.134/studytrip_api  (cek IP dengan `ipconfig`)
   static String get baseUrl => kIsWeb
       ? 'http://localhost/studytrip_api'
-      : 'http://10.0.2.2/studytrip_api';
+      : 'http://192.168.100.134/studytrip_api';
 
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'token';
@@ -65,6 +66,7 @@ class ApiClient {
     // Token kedaluwarsa / tidak valid -> kembali ke login
     if (r.statusCode == 401 && auth) {
       await clearToken();
+      await CurrentUser.clear();
       if (redirect) {
         navigatorKey.currentState?.pushNamedAndRemoveUntil(
           '/login',

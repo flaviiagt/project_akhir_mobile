@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -14,7 +18,7 @@ class AuthService {
   static final _localAuth = LocalAuthentication();
 
   // true  = boleh memakai PIN/pola/password layar sebagai cadangan (seperti HP umumnya)
-  // false = biometrik murni (sidik jari/wajah saja)
+  // false = biometrik murni (sidik jari)
   static const allowDeviceCredential = true;
 
   static bool isValidEmail(String? v) =>
@@ -38,7 +42,7 @@ class AuthService {
     });
   }
 
-  // [identifier] boleh email ATAU username.
+  // [identifier] boleh email atau username.
   static Future<Map<String, dynamic>> login(
     String identifier,
     String password,
@@ -50,6 +54,15 @@ class AuthService {
         'password': password,
       });
     } on ApiException catch (e) {
+      // Tidak ada koneksi -> coba verifikasi offline
+      if (e.statusCode == 0) {
+        final offlineUser = await _loginOffline(identifier, password);
+        if (offlineUser != null) return {...offlineUser, 'offline': true};
+        throw ApiException(
+          'Tidak ada koneksi. Login offline hanya bisa untuk akun yang pernah login di HP ini.',
+          0,
+        );
+      }
       // Pesan seragam supaya tidak membocorkan apakah akun terdaftar
       if (e.statusCode == 400 || e.statusCode == 401 || e.statusCode == 404) {
         throw ApiException('Email/username atau password salah', e.statusCode);
@@ -59,9 +72,13 @@ class AuthService {
     await ApiClient.saveToken(r['token']);
     final user = r['user'] as Map<String, dynamic>;
     await CurrentUser.set(user); // Anggota 2: kunci data lokal per akun
+    await _saveOffline(user, password); // simpan untuk login offline
     // Cloud: masuk ke Supabase dengan email akun (login boleh pakai username),
     // lalu sinkron. Tidak pernah melempar error.
-    await CloudAuth.signIn((user['email'] as String).trim().toLowerCase(), password);
+    await CloudAuth.signIn(
+      (user['email'] as String).trim().toLowerCase(),
+      password,
+    );
     SyncService.instance.requestSync();
 
     // Jika akun yang login berbeda dari akun biometrik, hapus data biometrik lama
@@ -88,6 +105,58 @@ class AuthService {
     await CurrentUser.clear(); // data lokal akun ini tidak lagi terlihat
     await CloudAuth.signOut();
     await NotificationService.instance.cancelAll();
+  }
+
+  // ---------- Login offline ----------
+  // Yang disimpan hanya hash PBKDF2 + salt acak, bukan password asli.
+  static String _pbkdf2(String pass, List<int> salt, {int iter = 10000}) {
+    final hmac = Hmac(sha256, utf8.encode(pass));
+    var u = hmac.convert([...salt, 0, 0, 0, 1]).bytes;
+    final t = List<int>.from(u);
+    for (var i = 1; i < iter; i++) {
+      u = hmac.convert(u).bytes;
+      for (var j = 0; j < t.length; j++) {
+        t[j] ^= u[j];
+      }
+    }
+    return base64.encode(t);
+  }
+
+  static Future<void> _saveOffline(
+    Map<String, dynamic> user,
+    String password,
+  ) async {
+    final rnd = Random.secure();
+    final salt = List<int>.generate(16, (_) => rnd.nextInt(256));
+    final data = jsonEncode({
+      'salt': base64.encode(salt),
+      'hash': _pbkdf2(password, salt),
+      'user': user,
+    });
+    // Disimpan di bawah email DAN username supaya keduanya bisa dipakai login
+    final keys = <String>{
+      (user['email'] as String).toLowerCase(),
+      if (user['username'] != null) (user['username'] as String).toLowerCase(),
+    };
+    for (final k in keys) {
+      await _s.write(key: 'offline_$k', value: data);
+    }
+  }
+
+  static Future<Map<String, dynamic>?> _loginOffline(
+    String identifier,
+    String password,
+  ) async {
+    final raw = await _s.read(
+      key: 'offline_${identifier.trim().toLowerCase()}',
+    );
+    if (raw == null) return null;
+    final m = jsonDecode(raw) as Map<String, dynamic>;
+    final salt = base64.decode(m['salt'] as String);
+    if (_pbkdf2(password, salt) != m['hash']) return null;
+    final user = Map<String, dynamic>.from(m['user'] as Map);
+    await CurrentUser.set(user);
+    return user;
   }
 
   // ---------- Biometrik ----------

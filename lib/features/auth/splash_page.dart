@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/api_client.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/auth_service.dart';
+import '../../../core/current_user.dart';
+import '../../../services/notification_service.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -24,6 +26,7 @@ class _SplashPageState extends State<SplashPage> {
     if (token != null) {
       try {
         await AuthService.me(redirect: false);
+        await NotificationService.instance.rescheduleAll();
         route = '/home';
       } on ApiException catch (e) {
         if (e.statusCode == 0) {
@@ -31,6 +34,7 @@ class _SplashPageState extends State<SplashPage> {
               '/home'; // offline: tetap masuk, data lokal tetap bisa dipakai
         } else {
           await ApiClient.clearToken(); // token kedaluwarsa
+          await CurrentUser.clear();
         }
       }
     }
