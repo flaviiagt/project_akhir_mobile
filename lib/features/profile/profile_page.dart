@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+
 import '../../../core/user_events.dart';
 import '../../../data/app_db.dart';
 import '../../../data/models.dart' show fmtDate;
@@ -120,7 +121,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   // ---------- Edit profil ----------
-    Future<void> _edit() async {
+  Future<void> _edit() async {
     final formKey = GlobalKey<FormState>();
     final name = TextEditingController(text: _user!['name']);
     University? uni = findUniversity(_user!['program'] as String?);
@@ -195,8 +196,12 @@ class _ProfilePageState extends State<ProfilePage> {
                       final p = await showDatePicker(
                         context: ctx,
                         initialDate: date ?? DateTime.now(),
-                        firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                        lastDate: DateTime.now().add(const Duration(days: 365 * 6)),
+                        firstDate: DateTime.now().subtract(
+                          const Duration(days: 365),
+                        ),
+                        lastDate: DateTime.now().add(
+                          const Duration(days: 365 * 6),
+                        ),
                       );
                       if (p != null) setS(() => date = p);
                     },
@@ -247,7 +252,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-    // ---------- Biometrik ----------
+  // ---------- Biometrik ----------
   Future<String?> _askPassword() {
     final c = TextEditingController();
     return showDialog<String>(
@@ -348,16 +353,17 @@ class _ProfilePageState extends State<ProfilePage> {
                     color: AppColors.container,
                     shape: BoxShape.circle,
                   ),
-                  child: CircleAvatar(
-                    backgroundColor: const Color(0xFFE4E2DF),
-                    backgroundImage: photo != null ? NetworkImage(photo) : null,
-                    child: photo == null
-                        ? const Icon(
-                            Icons.person,
-                            size: 48,
-                            color: AppColors.secondary,
+                  child: ClipOval(
+                    child: photo != null
+                        ? Image.network(
+                            photo,
+                            width: 96,
+                            height: 96,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const StDefaultAvatar(size: 96),
                           )
-                        : null,
+                        : const StDefaultAvatar(size: 96),
                   ),
                 ),
                 Positioned(
@@ -430,7 +436,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 24),
 
-                // 2. Program StudyTrip (sumber tujuan & tanggal untuk Beranda)
+        // 2. Program StudyTrip (sumber tujuan & tanggal untuk Beranda)
         StCard(
           padding: const EdgeInsets.all(20),
           child: InkWell(
@@ -471,11 +477,21 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                       if (uni != null)
-                        Text(uni.place,
-                            style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+                        Text(
+                          uni.place,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.muted,
+                          ),
+                        ),
                       if (_departure != null)
-                        Text('Berangkat ${dateFmt.format(_departure!)}',
-                            style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+                        Text(
+                          'Berangkat ${dateFmt.format(_departure!)}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.muted,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -599,7 +615,7 @@ class _PrefRow extends StatelessWidget {
                 color: iconBg,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Icon(icon, color: iconColor, size: 22),
+              child: Icon(icon, size: 22, color: iconColor),
             ),
             const SizedBox(width: 14),
             Expanded(

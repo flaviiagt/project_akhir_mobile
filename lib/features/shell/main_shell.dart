@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/shell_events.dart';
 import '../../widgets/st_widgets.dart';
 import '../../screens/home_screen.dart';
 import '../profile/profile_page.dart';
@@ -13,6 +14,26 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    shellTabRequest.addListener(_onTabRequest);
+  }
+
+  @override
+  void dispose() {
+    shellTabRequest.removeListener(_onTabRequest);
+    super.dispose();
+  }
+
+  // Widget mana pun bisa meminta pindah tab (mis. foto profil -> tab Profil).
+  void _onTabRequest() {
+    final i = shellTabRequest.value;
+    if (i == null) return;
+    shellTabRequest.value = null;
+    if (mounted) setState(() => _index = i);
+  }
 
   // FR-30: Beranda, Anggaran, Alat, Eksplorasi, Profil
   final _pages = const [

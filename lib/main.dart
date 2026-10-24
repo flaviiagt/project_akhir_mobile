@@ -15,6 +15,9 @@ import 'features/auth/splash_page.dart';
 import 'features/shell/main_shell.dart';
 import 'services/notification_service.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'core/supabase_config.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -28,6 +31,12 @@ Future<void> main() async {
   } catch (e, st) {
     startupError = '$e\n\n$st';
   }
+    // Cloud (Supabase). Jika belum diisi/gagal, aplikasi tetap jalan offline.
+  try {
+    if (SupabaseConfig.isSet) {
+      await Supabase.initialize(url: SupabaseConfig.url, anonKey: SupabaseConfig.anonKey);
+    }
+  } catch (_) {}
   try {
     await NotificationService.instance.init();
     await NotificationService.instance.rescheduleAll();

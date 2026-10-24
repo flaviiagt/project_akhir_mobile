@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import 'reminder_bell.dart';
+import 'user_avatar.dart';
 
 // Kartu putih bersudut 24 dengan bayangan
 class StCard extends StatelessWidget {
@@ -54,60 +56,63 @@ class StLogo extends StatelessWidget {
   }
 }
 
-// App bar: logo + "STUDYTRIP" + judul halaman
+// App bar: logo + "STUDYTRIP" + judul halaman (+ lonceng & avatar seperti dashboard)
 class StAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final bool showActions;
-  const StAppBar({super.key, required this.title, this.showActions = true});
+  final bool automaticallyImplyLeading;
+  const StAppBar({
+    super.key,
+    required this.title,
+    this.showActions = true,
+    this.automaticallyImplyLeading = true,
+  });
 
   @override
   Size get preferredSize => const Size.fromHeight(64);
 
   @override
   Widget build(BuildContext context) {
+    final hasBack = Navigator.of(context).canPop();
     return AppBar(
+      automaticallyImplyLeading: automaticallyImplyLeading,
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
       toolbarHeight: 64,
-      titleSpacing: 20,
+      titleSpacing: hasBack ? 0 : 20,
       title: Row(
         children: [
           const StLogo(),
           const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'STUDYTRIP',
-                style: AppText.label(size: 11, color: AppColors.brown),
-              ),
-              Text(title, style: AppText.headline(18, weight: FontWeight.w600)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'STUDYTRIP',
+                  style: AppText.label(size: 11, color: AppColors.brown),
+                ),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.headline(18, weight: FontWeight.w600),
+                ),
+              ],
+            ),
           ),
         ],
       ),
       actions: showActions
-          ? [
-              // Lonceng hanya tampilan; Anggota 2 yang menyambungkannya (FR-26)
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(
-                  Icons.notifications_none,
-                  color: AppColors.secondary,
-                ),
-              ),
-              Container(
-                width: 32,
-                height: 32,
-                margin: const EdgeInsets.only(left: 4, right: 16),
-                decoration: const BoxDecoration(
-                  color: AppColors.teal,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.person, color: Colors.white, size: 18),
+          ? const [
+              // Lonceng: badge + daftar deadline (FR-26), dari Anggota 2
+              ReminderBell(),
+              Padding(
+                padding: EdgeInsets.only(left: 4, right: 16),
+                child: UserAvatar(size: 32),
               ),
             ]
           : null,
@@ -262,4 +267,45 @@ class StField extends StatelessWidget {
       ],
     );
   }
+}
+
+// Avatar default: lingkaran abu-abu dengan siluet kepala dan bahu putih
+class StDefaultAvatar extends StatelessWidget {
+  final double size;
+  const StDefaultAvatar({super.key, this.size = 96});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _DefaultAvatarPainter()),
+    );
+  }
+}
+
+class _DefaultAvatarPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = const Color(0xFF9E9E9E),
+    );
+    final white = Paint()..color = Colors.white;
+    // kepala
+    canvas.drawCircle(Offset(w * 0.5, w * 0.37), w * 0.19, white);
+    // bahu
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(w * 0.5, w * 0.94),
+        width: w * 0.64,
+        height: w * 0.58,
+      ),
+      white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

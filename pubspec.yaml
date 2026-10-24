@@ -27,6 +27,7 @@ dependencies:
   intl: ^0.20.3
   # dipakai bersama
   google_fonts: ^6.3.2
+  supabase_flutter: ^2.18.3
 
 dev_dependencies:
   flutter_test:
