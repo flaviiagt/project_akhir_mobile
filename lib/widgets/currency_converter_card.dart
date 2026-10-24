@@ -1,12 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 import '../data/currency_repository.dart';
-import '../theme/app_theme.dart';
 
-const _teal = AppColors.teal;
-const _navy = AppColors.navy;
+const _teal = Color(0xFF1E8289);
+const _navy = Color(0xFF0F2537);
 const _amber = Color(0xFFF4A261);
 
 const _names = {
@@ -40,14 +42,58 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
   String _from = 'GBP';
   String _to = 'IDR';
 
+  // --- Gyroscope: putar HP untuk menukar arah konversi (FR-21) ---
+  static const double _spinThreshold = 2.0; // rad/s, perlu gerakan cepat yang disengaja
+  static const Duration _cooldown = Duration(seconds: 1);
+  StreamSubscription<GyroscopeEvent>? _gyroSub;
+  DateTime? _lastSpin;
+  bool _gyroAvailable = true;
+  bool _motionSwapEnabled = true;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _startGyro();
+  }
+
+  void _startGyro() {
+    try {
+      _gyroSub = gyroscopeEventStream().listen(
+        (e) {
+          if (!mounted) return;
+          // Abaikan jika kartu tidak sedang terlihat (mis. di tab lain).
+          if (!TickerMode.valuesOf(context).enabled) return;
+          if (!_motionSwapEnabled) return;
+          // e.y = kecepatan putar HP mengelilingi sumbu panjangnya (rad/s).
+          if (e.y.abs() < _spinThreshold) return;
+
+          final now = DateTime.now();
+          if (_lastSpin != null && now.difference(_lastSpin!) < _cooldown) {
+            return;
+          }
+          _lastSpin = now;
+          HapticFeedback.selectionClick();
+          _swap();
+        },
+        onError: (_) {
+          if (mounted) {
+            setState(() {
+              _gyroAvailable = false;
+              _motionSwapEnabled = false;
+            });
+          }
+        },
+        cancelOnError: false,
+      );
+    } catch (_) {
+      _gyroAvailable = false;
+    }
   }
 
   @override
   void dispose() {
+    _gyroSub?.cancel();
     _amountCtrl.dispose();
     super.dispose();
   }
@@ -68,8 +114,7 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _loadError =
-            'Gagal mengambil kurs dan belum ada data tersimpan. Periksa koneksi internetmu.';
+        _loadError = 'Gagal mengambil kurs dan belum ada data tersimpan. Periksa koneksi internetmu.';
       });
     }
   }
@@ -87,17 +132,19 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
   }
 
   void _swap() => setState(() {
-        final t = _from;
-        _from = _to;
-        _to = t;
-      });
+    final t = _from;
+    _from = _to;
+    _to = t;
+  });
 
   // ---------- format ----------
   static String _fmt(double v, String cur) {
     final dec = (cur == 'IDR' || cur == 'JPY') ? 0 : 2;
     final parts = v.toStringAsFixed(dec).split('.');
     final intPart = parts[0].replaceAllMapped(
-        RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => '.');
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => '.',
+    );
     return dec == 0 ? intPart : '$intPart,${parts[1]}';
   }
 
@@ -150,12 +197,15 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
         Row(
           children: [
             const Expanded(
-              child: Text('KONVERSI MATA UANG',
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                      color: Colors.black54)),
+              child: Text(
+                'KONVERSI MATA UANG',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: Colors.black54,
+                ),
+              ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -166,7 +216,10 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
               child: Text(
                 '1 $_from = ${_symbols[_to]} ${_fmtRate(snap.unitRate(_from, _to), _to)}',
                 style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w700, color: _navy),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: _navy,
+                ),
               ),
             ),
           ],
@@ -174,7 +227,9 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
         const SizedBox(height: 14),
 
         _currencyChips(
-            selected: _from, onSelect: (c) => setState(() => _from = c)),
+          selected: _from,
+          onSelect: (c) => setState(() => _from = c),
+        ),
         const SizedBox(height: 12),
 
         // input
@@ -185,14 +240,18 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
             child: TextField(
               controller: _amountCtrl,
               textAlign: TextAlign.right,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
               ],
               onChanged: (_) => setState(() {}),
               style: GoogleFonts.bricolageGrotesque(
-                  fontSize: 22, fontWeight: FontWeight.w800, color: _teal),
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: _teal,
+              ),
               decoration: const InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
@@ -204,8 +263,10 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
         if (error != null)
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 8),
-            child: Text(error,
-                style: const TextStyle(color: Color(0xFFBA1A1A), fontSize: 12)),
+            child: Text(
+              error,
+              style: const TextStyle(color: Color(0xFFBA1A1A), fontSize: 12),
+            ),
           ),
 
         Center(
@@ -226,8 +287,7 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
           ),
         ),
 
-        _currencyChips(
-            selected: _to, onSelect: (c) => setState(() => _to = c)),
+        _currencyChips(selected: _to, onSelect: (c) => setState(() => _to = c)),
         const SizedBox(height: 12),
 
         // hasil
@@ -236,10 +296,53 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
           trailing: Text(
             result == null ? '—' : _fmt(result, _to),
             style: GoogleFonts.bricolageGrotesque(
-                fontSize: 22, fontWeight: FontWeight.w800, color: _navy),
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: _navy,
+            ),
           ),
         ),
         const SizedBox(height: 14),
+
+        // Tukar arah konversi dengan gerakan
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Tukar dengan gerakan',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    _gyroAvailable
+                        ? 'Goyangkan HP dengan cepat'
+                        : 'Sensor gerak tidak tersedia',
+                    style: const TextStyle(fontSize: 11, color: Colors.black45),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              _motionSwapEnabled ? 'Aktif' : 'Nonaktif',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: _motionSwapEnabled ? _teal : Colors.black45,
+              ),
+            ),
+            Switch.adaptive(
+              value: _motionSwapEnabled,
+              onChanged: _gyroAvailable
+                  ? (enabled) =>
+                      setState(() => _motionSwapEnabled = enabled)
+                  : null,
+              activeTrackColor: _teal,
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
 
         // sumber & waktu update (FR-14)
         _statusBar(snap),
@@ -251,7 +354,9 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
     final dec = (cur == 'IDR' || cur == 'JPY') ? 0 : 4;
     final parts = v.toStringAsFixed(dec).split('.');
     final intPart = parts[0].replaceAllMapped(
-        RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => '.');
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => '.',
+    );
     return dec == 0 ? intPart : '$intPart,${parts[1]}';
   }
 
@@ -260,8 +365,11 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(offline ? Icons.cloud_off : Icons.info_outline,
-            size: 16, color: offline ? const Color(0xFFBA1A1A) : Colors.black45),
+        Icon(
+          offline ? Icons.cloud_off : Icons.info_outline,
+          size: 16,
+          color: offline ? const Color(0xFFBA1A1A) : Colors.black45,
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -275,7 +383,8 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
             ? const SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: _teal))
+                child: CircularProgressIndicator(strokeWidth: 2, color: _teal),
+              )
             : InkWell(
                 onTap: _load,
                 child: const Padding(
@@ -288,22 +397,23 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
   }
 
   Widget _buildError() => Column(
-        children: [
-          const Icon(Icons.wifi_off, size: 40, color: _teal),
-          const SizedBox(height: 12),
-          Text(_loadError ?? 'Terjadi kesalahan',
-              textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: _teal),
-            onPressed: _load,
-            child: const Text('Coba lagi'),
-          ),
-        ],
-      );
+    children: [
+      const Icon(Icons.wifi_off, size: 40, color: _teal),
+      const SizedBox(height: 12),
+      Text(_loadError ?? 'Terjadi kesalahan', textAlign: TextAlign.center),
+      const SizedBox(height: 12),
+      FilledButton(
+        style: FilledButton.styleFrom(backgroundColor: _teal),
+        onPressed: _load,
+        child: const Text('Coba lagi'),
+      ),
+    ],
+  );
 
-  Widget _currencyChips(
-      {required String selected, required ValueChanged<String> onSelect}) {
+  Widget _currencyChips({
+    required String selected,
+    required ValueChanged<String> onSelect,
+  }) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -348,25 +458,36 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
               color: _teal.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Text(_symbols[currency]!,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w800, color: _teal)),
+            child: Text(
+              _symbols[currency]!,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: _teal,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(_names[currency]!.toUpperCase(),
-                    style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black54)),
-                Text(currency,
-                    style: GoogleFonts.bricolageGrotesque(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: _navy)),
+                Text(
+                  _names[currency]!.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black54,
+                  ),
+                ),
+                Text(
+                  currency,
+                  style: GoogleFonts.bricolageGrotesque(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: _navy,
+                  ),
+                ),
               ],
             ),
           ),

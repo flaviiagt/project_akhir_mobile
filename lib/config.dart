@@ -16,6 +16,7 @@ const List<String> kExpenseCategories = [
 
 /// Gemini API Key untuk fitur StudyBuddy AI.
 /// Dapatkan secara gratis di https://aistudio.google.com/
-/// Kamu bisa mengisinya di sini atau langsung lewat dialog pengaturan di aplikasi.
+/// Kamu bisa mengganti kunci ini atau mengaturnya lewat dialog pengaturan (ikon ⚙️) di aplikasi.
 const String kGeminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 const String kGeminiModel = 'gemini-3.8-flash';
+

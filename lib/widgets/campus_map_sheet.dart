@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../pages/campus_map_page.dart';
 import '../theme/app_theme.dart';
 
 /// Modal Peta Interaktif & Location-Based Services (FR-19).
@@ -37,6 +38,12 @@ class _CampusMapSheetState extends State<CampusMapSheet> {
     super.initState();
     _mapController = MapController();
     _targetCenter = LatLng(widget.latitude, widget.longitude);
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
   }
 
   // Hitung jarak Geodesic (Haversine formula) dalam km
@@ -117,8 +124,20 @@ class _CampusMapSheetState extends State<CampusMapSheet> {
                   ),
                 ),
                 IconButton(
+                  tooltip: 'Buka Peta Dunia Lengkap',
+                  icon: const Icon(Icons.open_in_new, color: AppColors.teal, size: 20),
+                  onPressed: () {
+                    final navigator = Navigator.of(context);
+                    navigator.pop();
+                    navigator.push(
+                      MaterialPageRoute(builder: (_) => const CampusMapPage()),
+                    );
+                  },
+                ),
+                IconButton(
+                  tooltip: 'Tutup Peta',
                   icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
@@ -210,41 +229,34 @@ class _CampusMapSheetState extends State<CampusMapSheet> {
                   ),
                 ),
 
-                // Floating Map Controls
+                // Floating Map Controls (Hero-free untuk cegah _dependents.isEmpty crash)
                 Positioned(
                   right: 16,
                   bottom: 24,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      FloatingActionButton.small(
-                        heroTag: 'zoom_in',
-                        backgroundColor: Colors.white,
-                        foregroundColor: AppColors.ink,
-                        child: const Icon(Icons.add),
-                        onPressed: () {
+                      _mapActionButton(
+                        icon: Icons.add,
+                        onTap: () {
                           final z = _mapController.camera.zoom + 1;
                           _mapController.move(_targetCenter, z);
                         },
                       ),
                       const SizedBox(height: 8),
-                      FloatingActionButton.small(
-                        heroTag: 'zoom_out',
-                        backgroundColor: Colors.white,
-                        foregroundColor: AppColors.ink,
-                        child: const Icon(Icons.remove),
-                        onPressed: () {
+                      _mapActionButton(
+                        icon: Icons.remove,
+                        onTap: () {
                           final z = _mapController.camera.zoom - 1;
                           _mapController.move(_targetCenter, z);
                         },
                       ),
                       const SizedBox(height: 8),
-                      FloatingActionButton.small(
-                        heroTag: 'recenter',
-                        backgroundColor: AppColors.teal,
-                        foregroundColor: Colors.white,
-                        child: const Icon(Icons.my_location),
-                        onPressed: () {
+                      _mapActionButton(
+                        icon: Icons.my_location,
+                        bgColor: AppColors.teal,
+                        fgColor: Colors.white,
+                        onTap: () {
                           _mapController.move(_targetCenter, 14.5);
                         },
                       ),
@@ -255,6 +267,29 @@ class _CampusMapSheetState extends State<CampusMapSheet> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _mapActionButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    Color bgColor = Colors.white,
+    Color fgColor = AppColors.ink,
+  }) {
+    return Material(
+      color: bgColor,
+      shape: const CircleBorder(),
+      elevation: 4,
+      shadowColor: Colors.black38,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(icon, color: fgColor, size: 20),
+        ),
       ),
     );
   }

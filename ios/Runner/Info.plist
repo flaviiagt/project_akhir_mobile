@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>StudyTrip menggunakan kamera untuk menerjemahkan tulisan dari foto.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>StudyTrip mengakses foto yang kamu pilih untuk menerjemahkan tulisannya.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

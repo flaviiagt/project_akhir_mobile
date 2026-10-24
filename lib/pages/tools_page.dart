@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/currency_converter_card.dart';
 import '../widgets/emergency_shortcut_card.dart';
-import '../widgets/gyroscope_compass_card.dart';
 import '../widgets/studybuddy_ai_card.dart';
 import '../widgets/studytrip_app_bar.dart';
 import '../widgets/timezone_converter_card.dart';
@@ -20,6 +19,24 @@ class _ToolsPageState extends State<ToolsPage> {
   int _timeDifference = -6;
 
   @override
+  void initState() {
+    super.initState();
+    // Pasang bubble StudyBuddy yang melayang di atas semua halaman
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) StudyBuddyFloating.show(context);
+    });
+  }
+
+  @override
+  void dispose() {
+    // Bubble ikut hilang saat halaman ini dihancurkan (mis. logout)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      StudyBuddyFloating.hide();
+    });
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final diffSign = _timeDifference > 0 ? '+' : '';
     final diffLabel = '$diffSign$_timeDifference Jam Selisih';
@@ -31,7 +48,10 @@ class _ToolsPageState extends State<ToolsPage> {
         actions: [
           IconButton(
             tooltip: 'Notifikasi',
-            icon: const Icon(Icons.notifications_none_rounded, color: AppColors.navy),
+            icon: const Icon(
+              Icons.notifications_none_rounded,
+              color: AppColors.navy,
+            ),
             onPressed: () {},
           ),
           Padding(
@@ -69,7 +89,10 @@ class _ToolsPageState extends State<ToolsPage> {
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFD7F0F0),
                   borderRadius: BorderRadius.circular(99),
@@ -112,7 +135,10 @@ class _ToolsPageState extends State<ToolsPage> {
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFE3CF),
                   borderRadius: BorderRadius.circular(99),
@@ -165,10 +191,6 @@ class _ToolsPageState extends State<ToolsPage> {
           ),
           const SizedBox(height: 12),
           const EmergencyShortcutCard(),
-          const SizedBox(height: 14),
-          const GyroscopeCompassCard(),
-          const SizedBox(height: 14),
-          const StudyBuddyAiCard(),
         ],
       ),
     );

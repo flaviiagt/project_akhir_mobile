@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-
+import 'campus_map_page.dart';
 import '../data/weather_repository.dart';
 import '../models/exploration_item.dart';
 import '../theme/app_theme.dart';
@@ -181,6 +181,8 @@ class _ExplorationPageState extends State<ExplorationPage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      enableDrag: false,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => CampusMapSheet(
         campusName: title,
@@ -253,17 +255,31 @@ class _ExplorationPageState extends State<ExplorationPage> {
     );
   }
 
-  void _openCampusDetail(CampusItem campus) {
-    showModalBottomSheet(
+  void _openCampusDetail(CampusItem campus) async {
+    CampusItem? targetMapCampus;
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _CampusDetailModal(
         campus: campus,
         onToggleBookmark: () => _toggleBookmark(campus.id),
         onToggleCompare: () => _toggleComparing(campus.id),
+        onOpenMap: (c) {
+          targetMapCampus = c;
+          Navigator.of(ctx).pop();
+        },
       ),
     );
+    if (targetMapCampus != null && mounted) {
+      _openCampusMap(
+        targetMapCampus!.name,
+        targetMapCampus!.location,
+        targetMapCampus!.latitude,
+        targetMapCampus!.longitude,
+      );
+    }
   }
 
   @override
@@ -424,6 +440,23 @@ class _ExplorationPageState extends State<ExplorationPage> {
               else
                 ...campuses.map((c) => _buildCampusCard(c)),
             ],
+          ),
+
+                    // Tombol mengambang: buka Peta Kampus Dunia (LBS)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.small(
+              heroTag: 'open_campus_map',
+              tooltip: 'Peta Kampus Dunia',
+              backgroundColor: AppColors.teal,
+              foregroundColor: Colors.white,
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CampusMapPage()),
+              ),
+              child: const Icon(Icons.public),
+            ),
           ),
 
           // Floating Comparison Button (Bandingkan Kampus 2)
@@ -1304,11 +1337,13 @@ class _CampusDetailModal extends StatelessWidget {
   final CampusItem campus;
   final VoidCallback onToggleBookmark;
   final VoidCallback onToggleCompare;
+  final ValueChanged<CampusItem>? onOpenMap;
 
   const _CampusDetailModal({
     required this.campus,
     required this.onToggleBookmark,
     required this.onToggleCompare,
+    this.onOpenMap,
   });
 
   @override
@@ -1424,19 +1459,7 @@ class _CampusDetailModal extends StatelessWidget {
                   color: Colors.transparent,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(18),
-                    onTap: () {
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (ctx) => CampusMapSheet(
-                          campusName: campus.name,
-                          locationName: campus.location,
-                          latitude: campus.latitude,
-                          longitude: campus.longitude,
-                        ),
-                      );
-                    },
+                    onTap: () => onOpenMap?.call(campus),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
