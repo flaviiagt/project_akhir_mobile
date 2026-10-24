@@ -11,6 +11,7 @@ import '../../../widgets/university_picker.dart';
 import '../../../core/api_client.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/auth_service.dart';
+import '../../../core/idle_guard.dart';
 import '../../../widgets/st_widgets.dart';
 import '../auth/logout.dart';
 import '../feedback/feedback_page.dart';
@@ -357,6 +358,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: photo != null
                         ? Image.network(
                             photo,
+                            headers: ApiClient.imageHeaders,
                             width: 96,
                             height: 96,
                             fit: BoxFit.cover,
@@ -536,6 +538,20 @@ class _ProfilePageState extends State<ProfilePage> {
             trailing: Switch(
               value: _bioEnabled,
               onChanged: _bioAvailable ? _toggleBio : null,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Sesi otomatis berakhir (FR-04)
+        StCard(
+          child: _PrefRow(
+            iconBg: const Color(0xFFFEF3C7),
+            iconColor: const Color(0xFFB45309),
+            icon: Icons.timer_outlined,
+            title: 'Sesi otomatis berakhir',
+            subtitle: 'Keluar otomatis setelah $kIdleLabel tidak aktif',
+            trailing: const IdleCountdownText(
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
         ),

@@ -8,6 +8,7 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'core/app_routes.dart';
 import 'core/app_theme.dart';
 import 'core/current_user.dart';
+import 'core/idle_guard.dart';
 import 'data/app_db.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/register_page.dart';
@@ -16,6 +17,7 @@ import 'features/shell/main_shell.dart';
 import 'services/notification_service.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'core/supabase_config.dart';
 
 Future<void> main() async {
@@ -31,10 +33,13 @@ Future<void> main() async {
   } catch (e, st) {
     startupError = '$e\n\n$st';
   }
-    // Cloud (Supabase). Jika belum diisi/gagal, aplikasi tetap jalan offline.
+  // Cloud (Supabase). Jika belum diisi/gagal, aplikasi tetap jalan offline.
   try {
     if (SupabaseConfig.isSet) {
-      await Supabase.initialize(url: SupabaseConfig.url, anonKey: SupabaseConfig.anonKey);
+      await Supabase.initialize(
+        url: SupabaseConfig.url,
+        anonKey: SupabaseConfig.anonKey,
+      );
     }
   } catch (_) {}
   try {
@@ -44,18 +49,20 @@ Future<void> main() async {
     // notifikasi tidak boleh menghentikan aplikasi
   }
 
-  runApp(startupError == null
-      ? const StudyTripApp()
-      : MaterialApp(
-          home: Scaffold(
-            body: SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: SelectableText('Gagal memulai:\n$startupError'),
+  runApp(
+    startupError == null
+        ? const StudyTripApp()
+        : MaterialApp(
+            home: Scaffold(
+              body: SafeArea(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: SelectableText('Gagal memulai:\n$startupError'),
+                ),
               ),
             ),
           ),
-        ));
+  );
 }
 
 class StudyTripApp extends StatelessWidget {
@@ -75,6 +82,8 @@ class StudyTripApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      builder: (context, child) =>
+          IdleSessionGuard(child: child ?? const SizedBox.shrink()),
       initialRoute: '/',
       routes: {
         '/': (_) => const SplashPage(),

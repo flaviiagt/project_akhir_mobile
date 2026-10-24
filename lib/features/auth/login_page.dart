@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api_client.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/auth_service.dart';
+import '../../../core/current_user.dart';
 import '../../../services/notification_service.dart';
 import '../../../widgets/st_widgets.dart';
 
@@ -52,13 +54,122 @@ class _LoginPageState extends State<LoginPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
+  /// Tanya izin notifikasi per akun: Izinkan / Tolak disimpan di HP ini,
+  /// "Nanti" ditanya lagi saat login berikutnya.
+  Future<void> _welcomeWithConsent(String? name) async {
+    if (!mounted) return;
+    final uid = CurrentUser.id;
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'notif_choice_$uid';
+    final saved = uid == null ? null : prefs.getString(key);
+
+    if (saved == 'deny') {
+      // akun ini sudah menolak: pengingat tetap mati, tidak ditanya lagi
+      await NotificationService.instance.setReminders(false);
+      return;
+    }
+    if (saved == 'allow') {
+      await NotificationService.instance.setReminders(true);
+      await NotificationService.instance.welcome(name: name);
+      return;
+    }
+
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+        contentPadding: const EdgeInsets.fromLTRB(24, 28, 24, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(
+                color: Color(0x1F1E8289),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.notifications_active_outlined,
+                size: 32,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Izinkan notifikasi?',
+              textAlign: TextAlign.center,
+              style: AppText.headline(22, weight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'StudyTrip ingin mengirim pengingat tenggat dokumen dan jadwal perjalananmu.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.muted, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(ctx, 'allow'),
+                    child: const Text('Izinkan'),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx, 'later'),
+                    child: const Text('Nanti'),
+                  ),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx, 'deny'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.muted,
+                    ),
+                    child: const Text('Tolak'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == 'allow') {
+      // Minta izin sistem + nyalakan pengingat; simpan hanya kalau benar-benar aktif.
+      final st = await NotificationService.instance.setReminders(true);
+      if (st == NotifStatus.on) {
+        if (uid != null) await prefs.setString(key, 'allow');
+        await NotificationService.instance.welcome(name: name);
+      }
+    } else if (choice == 'deny') {
+      if (uid != null) await prefs.setString(key, 'deny');
+      await NotificationService.instance.setReminders(false);
+    }
+  }
+
   Future<void> _login() async {
     if (!_form.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
       final user = await AuthService.login(_id.text.trim(), _pass.text);
       await NotificationService.instance.rescheduleAll();
-      await NotificationService.instance.welcome(name: user['name'] as String?);
+      await _welcomeWithConsent(user['name'] as String?);
       if (user['offline'] == true) {
         _snack('Masuk mode offline. Data akan disinkronkan saat online.');
       }
@@ -76,7 +187,7 @@ class _LoginPageState extends State<LoginPage> {
       final u = await AuthService.loginWithBiometric();
       if (u != null && mounted) {
         await NotificationService.instance.rescheduleAll();
-        await NotificationService.instance.welcome(name: u['name'] as String?);
+        await _welcomeWithConsent(u['name'] as String?);
         if (u['offline'] == true) {
           _snack('Masuk mode offline. Data akan disinkronkan saat online.');
         }

@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb, VoidCallback;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -181,9 +182,9 @@ class NotificationService {
     } catch (_) {}
   }
 
-  /// Dipanggil sesudah login: minta izin (sekali saja), lalu sambutan.
+  /// Dipanggil sesudah login: minta izin sistem bila belum aktif, lalu sambutan.
   Future<void> welcome({String? name}) async {
-    if (!kIsWeb && !await asked) await requestPermission();
+    if (!kIsWeb && !await isGranted()) await requestPermission();
     final who = (name == null || name.trim().isEmpty) ? '' : ', ${name.trim()}';
     await show(
       'Selamat datang di StudyTrip$who',
@@ -273,8 +274,8 @@ class NotificationService {
   static String _titleFor(int offset) => offset == 0
       ? 'Deadline hari ini'
       : offset == 1
-          ? 'Deadline besok'
-          : 'Deadline $offset hari lagi';
+      ? 'Deadline besok'
+      : 'Deadline $offset hari lagi';
 
   /// Jadwalkan ulang pengingat dari checklist akun yang sedang login.
   /// Hanya berjalan jika izin sistem ada DAN pengingat diaktifkan pengguna.
@@ -309,8 +310,12 @@ class NotificationService {
       if (it.done || it.deadline == null || it.id == null) continue;
       final d = it.deadline!;
       for (final offset in reminderDays) {
-        final when = DateTime(d.year, d.month, d.day, _hour)
-            .subtract(Duration(days: offset));
+        final when = DateTime(
+          d.year,
+          d.month,
+          d.day,
+          _hour,
+        ).subtract(Duration(days: offset));
         if (!when.isAfter(DateTime.now())) continue;
         await _plugin.zonedSchedule(
           it.id! * 10 + offset,
