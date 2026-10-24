@@ -5,6 +5,9 @@ import '../../core/shell_events.dart';
 import '../../widgets/st_widgets.dart';
 import '../../screens/home_screen.dart';
 import '../profile/profile_page.dart';
+import '../../core/app_routes.dart';
+import '../../screens/notification_screen.dart';
+import '../../services/notification_service.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -19,6 +22,16 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     shellTabRequest.addListener(_onTabRequest);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // Notifikasi di dalam app: ringkasan tugas yang mendekati deadline
+      await showDueReminderBanner(context);
+      // Aplikasi dibuka dengan mengetuk notifikasi di HP -> langsung ke halamannya
+      if (await NotificationService.instance.launchedFromNotification()) {
+        navigatorKey.currentState
+            ?.push(MaterialPageRoute(builder: (_) => const NotificationScreen()));
+      }
+    });
   }
 
   @override
