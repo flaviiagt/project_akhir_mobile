@@ -28,6 +28,8 @@ dependencies:
   # dipakai bersama
   google_fonts: ^6.3.2
   supabase_flutter: ^2.18.3
+  crypto: ^3.0.6
+  encrypt: ^5.0.3
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -17,12 +18,13 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
-  // Chrome (web)     : http://localhost/studytrip_api
-  // Emulator Android : http://10.0.2.2/studytrip_api
-  // HP asli (1 WiFi) : http://192.168.100.134/studytrip_api  (cek IP dengan `ipconfig`)
-  static String get baseUrl => kIsWeb
-      ? 'http://localhost/studytrip_api'
-      : 'http://192.168.100.134/studytrip_api';
+  // URL server. Bisa diganti tanpa edit kode lewat:
+  //   flutter run --dart-define=API_BASE=https://xxxx/studytrip_api
+  static const _base = String.fromEnvironment(
+    'API_BASE',
+    defaultValue: 'https://studytrip.free.je/studytrip_api',
+  );
+  static String get baseUrl => _base;
 
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'token';
@@ -35,8 +37,63 @@ class ApiClient {
   static String? fileUrl(String? path) =>
       (path == null || path.isEmpty) ? null : '$baseUrl/$path';
 
+  // ---- Tantangan anti-bot hosting gratis (aes.js) ----
+  static String? _antiBotCookie;
+
+  static bool _isChallenge(String body) =>
+      body.contains('/aes.js') && body.contains('toNumbers(');
+
+  static List<int> _hexToBytes(String h) => [
+    for (var i = 0; i < h.length; i += 2)
+      int.parse(h.substring(i, i + 2), radix: 16),
+  ];
+
+  static bool _solveChallenge(String body) {
+    try {
+      final m = RegExp(r'toNumbers\("([0-9a-fA-F]+)"\)')
+          .allMatches(body)
+          .toList();
+      if (m.length < 3) return false;
+      final a = _hexToBytes(m[0].group(1)!);
+      final b = _hexToBytes(m[1].group(1)!);
+      final c = _hexToBytes(m[2].group(1)!);
+      final aes = enc.Encrypter(
+        enc.AES(
+          enc.Key(Uint8List.fromList(a)),
+          mode: enc.AESMode.cbc,
+          padding: null,
+        ),
+      );
+      final out = aes.decryptBytes(
+        enc.Encrypted(Uint8List.fromList(c)),
+        iv: enc.IV(Uint8List.fromList(b)),
+      );
+      _antiBotCookie = out
+          .map((x) => x.toRadixString(16).padLeft(2, '0'))
+          .join();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Uri _uri(String path) {
+    final u = '$baseUrl/$path';
+    if (_antiBotCookie == null) return Uri.parse(u);
+    return Uri.parse(u.contains('?') ? '$u&i=1' : '$u?i=1');
+  }
+
+  /// Header untuk Image.network (foto profil) supaya lolos tantangan yang sama.
+  static Map<String, String> get imageHeaders =>
+      _antiBotCookie == null ? const {} : {'Cookie': '__test=$_antiBotCookie'};
+  // -----------------------------------------------------
+
   static Future<Map<String, String>> _headers(bool auth) async {
-    final h = {'Content-Type': 'application/json'};
+    final h = {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    };
+    if (_antiBotCookie != null) h['Cookie'] = '__test=$_antiBotCookie';
     if (auth) {
       final t = await token;
       if (t != null) h['Authorization'] = 'Bearer $t';
@@ -52,6 +109,10 @@ class ApiClient {
     http.Response r;
     try {
       r = await request().timeout(const Duration(seconds: 15));
+      // Kena tantangan anti-bot? Selesaikan, lalu kirim ulang sekali.
+      if (_isChallenge(r.body) && _solveChallenge(r.body)) {
+        r = await request().timeout(const Duration(seconds: 15));
+      }
     } catch (_) {
       throw ApiException('Tidak dapat terhubung ke server', 0);
     }
@@ -60,7 +121,11 @@ class ApiClient {
     try {
       data = jsonDecode(r.body) as Map<String, dynamic>;
     } catch (_) {
-      throw ApiException('Respon server tidak valid', r.statusCode);
+      final b = r.body;
+      throw ApiException(
+        'Respon tidak valid: ${b.substring(0, b.length > 200 ? 200 : b.length)}',
+        r.statusCode,
+      );
     }
 
     // Token kedaluwarsa / tidak valid -> kembali ke login
@@ -91,7 +156,7 @@ class ApiClient {
     return _handle(
       () async {
         return http.post(
-          Uri.parse('$baseUrl/$path'),
+          _uri(path),
           headers: await _headers(auth),
           body: jsonEncode(body),
         );
@@ -108,10 +173,7 @@ class ApiClient {
   }) {
     return _handle(
       () async {
-        return http.get(
-          Uri.parse('$baseUrl/$path'),
-          headers: await _headers(auth),
-        );
+        return http.get(_uri(path), headers: await _headers(auth));
       },
       auth: auth,
       redirect: redirect,
@@ -137,8 +199,12 @@ class ApiClient {
     String filename,
   ) {
     return _handle(() async {
-      final req = http.MultipartRequest('POST', Uri.parse('$baseUrl/$path'));
+      final req = http.MultipartRequest('POST', _uri(path));
       req.headers['Authorization'] = 'Bearer ${await token}';
+      req.headers['ngrok-skip-browser-warning'] = 'true';
+      if (_antiBotCookie != null) {
+        req.headers['Cookie'] = '__test=$_antiBotCookie';
+      }
       req.files.add(
         http.MultipartFile.fromBytes(
           field,

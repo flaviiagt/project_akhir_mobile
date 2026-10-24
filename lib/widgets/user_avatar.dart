@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../core/api_client.dart';
 import '../core/app_theme.dart';
 import '../core/profile_store.dart';
 import '../core/shell_events.dart';
@@ -21,15 +23,22 @@ class _UserAvatarState extends State<UserAvatar> {
   }
 
   Widget _fallback(String name) {
-    final initial = name.isEmpty ? '' : String.fromCharCode(name.runes.first).toUpperCase();
+    final initial = name.isEmpty
+        ? ''
+        : String.fromCharCode(name.runes.first).toUpperCase();
     return Container(
       color: AppColors.teal,
       alignment: Alignment.center,
       child: initial.isEmpty
           ? Icon(Icons.person, color: Colors.white, size: widget.size * 0.56)
-          : Text(initial,
+          : Text(
+              initial,
               style: TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w700, fontSize: widget.size * 0.45)),
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: widget.size * 0.45,
+              ),
+            ),
     );
   }
 
@@ -54,9 +63,11 @@ class _UserAvatarState extends State<UserAvatar> {
                     ? _fallback(name)
                     : Image.network(
                         url,
+                        headers: ApiClient.imageHeaders,
                         key: ValueKey(url),
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stack) => _fallback(name),
+                        errorBuilder: (context, error, stack) =>
+                            _fallback(name),
                       ),
               ),
             ),

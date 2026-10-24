@@ -163,6 +163,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 : 'Batas waktu $nextDays hari lagi');
     }
 
+    final w = MediaQuery.of(context).size.width;
+    final side = w > 560 ? (w - 520) / 2 : 20.0; // tengah & tidak terlalu lebar
+
     return Scaffold(
       appBar: const StAppBar(
         title: 'Beranda',
@@ -175,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
             await _load();
           },
           child: ListView(
+            padding: EdgeInsets.fromLTRB(side, 8, side, 24),
             children: [
               // Badge status + sapaan
               Wrap(

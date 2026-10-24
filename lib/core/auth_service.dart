@@ -72,6 +72,7 @@ class AuthService {
     await ApiClient.saveToken(r['token']);
     final user = r['user'] as Map<String, dynamic>;
     await CurrentUser.set(user); // Anggota 2: kunci data lokal per akun
+    await _cacheUser(user); // profil untuk mode offline
     await _saveOffline(user, password); // simpan untuk login offline
     // Cloud: masuk ke Supabase dengan email akun (login boleh pakai username),
     // lalu sinkron. Tidak pernah melempar error.
@@ -91,11 +92,21 @@ class AuthService {
   }
 
   static Future<Map<String, dynamic>> me({bool redirect = true}) async {
-    final r = await ApiClient.get('me.php', auth: true, redirect: redirect);
-    final user = r['user'] as Map<String, dynamic>;
-    await CurrentUser.set(user); // Anggota 2: kunci data lokal per akun
-    SyncService.instance.requestSync();
-    return user;
+    try {
+      final r = await ApiClient.get('me.php', auth: true, redirect: redirect);
+      final user = r['user'] as Map<String, dynamic>;
+      await CurrentUser.set(user); // Anggota 2: kunci data lokal per akun
+      await _cacheUser(user); // simpan untuk dipakai saat offline
+      SyncService.instance.requestSync();
+      return user;
+    } on ApiException catch (e) {
+      // Offline atau server bermasalah: pakai profil tersimpan kalau ada
+      if (e.statusCode == 0 || e.statusCode >= 500) {
+        final cached = await cachedUser();
+        if (cached != null) return cached;
+      }
+      rethrow;
+    }
   }
 
   static Future<void> logout() async {
@@ -105,6 +116,30 @@ class AuthService {
     await CurrentUser.clear(); // data lokal akun ini tidak lagi terlihat
     await CloudAuth.signOut();
     await NotificationService.instance.cancelAll();
+  }
+
+  // ---------- Cache profil (untuk mode offline) ----------
+  static String? _cacheKey() {
+    final id = CurrentUser.id;
+    return id == null ? null : 'cached_user_$id';
+  }
+
+  static Future<void> _cacheUser(Map<String, dynamic> user) async {
+    final k = _cacheKey();
+    if (k == null) return;
+    await _s.write(key: k, value: jsonEncode(user));
+  }
+
+  static Future<Map<String, dynamic>?> cachedUser() async {
+    final k = _cacheKey();
+    if (k == null) return null;
+    final raw = await _s.read(key: k);
+    if (raw == null) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---------- Login offline ----------

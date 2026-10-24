@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import 'reminder_bell.dart';
-import 'user_avatar.dart';
 
 // Kartu putih bersudut 24 dengan bayangan
 class StCard extends StatelessWidget {
@@ -110,10 +109,7 @@ class StAppBar extends StatelessWidget implements PreferredSizeWidget {
           ? const [
               // Lonceng: badge + daftar deadline (FR-26), dari Anggota 2
               ReminderBell(),
-              Padding(
-                padding: EdgeInsets.only(left: 4, right: 16),
-                child: UserAvatar(size: 32),
-              ),
+              SizedBox(width: 8),
             ]
           : null,
     );

@@ -26,16 +26,20 @@ class _SplashPageState extends State<SplashPage> {
     if (token != null) {
       try {
         await AuthService.me(redirect: false);
-        await NotificationService.instance.rescheduleAll();
         route = '/home';
       } on ApiException catch (e) {
-        if (e.statusCode == 0) {
-          route =
-              '/home'; // offline: tetap masuk, data lokal tetap bisa dipakai
-        } else {
-          await ApiClient.clearToken(); // token kedaluwarsa
+        if (e.statusCode == 401) {
+          // token kedaluwarsa / tidak valid
+          await ApiClient.clearToken();
           await CurrentUser.clear();
+        } else {
+          // offline (0) atau server bermasalah (5xx): tetap masuk,
+          // data lokal tetap bisa dipakai
+          route = '/home';
         }
+      }
+      if (route == '/home') {
+        await NotificationService.instance.rescheduleAll();
       }
     }
     if (mounted) Navigator.pushReplacementNamed(context, route);
