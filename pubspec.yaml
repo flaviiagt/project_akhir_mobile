@@ -27,6 +27,11 @@ dependencies:
   intl: ^0.20.3
   # dipakai bersama
   google_fonts: ^6.3.2
+  flutter_map: 8.3.2
+  latlong2: 0.10.1
+  sensors_plus: 7.1.1
+  google_generative_ai: 0.4.7
+  sqflite_common_ffi: 2.4.4
 
 dev_dependencies:
   flutter_test:

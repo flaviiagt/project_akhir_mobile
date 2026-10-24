@@ -21,17 +21,22 @@ class AppDb {
     return openDatabase(
       path,
       version: 2,
-      onCreate: (d, v) => _createTables(d),
+      onOpen: (d) async => _ensureBudgetTables(d),
+      onCreate: (d, v) async {
+        await _createTables(d);
+        await _ensureBudgetTables(d);
+      },
       // v1 -> v2: kolom user_id ditambahkan. Data lama (data uji) dibuang.
       onUpgrade: (d, oldV, newV) async {
         await _dropTables(d);
         await _createTables(d);
+        await _ensureBudgetTables(d);
       },
     );
   }
 
   Future<void> _dropTables(Database d) async {
-    for (final t in ['checklist', 'itinerary', 'notes', 'quiz_scores', 'settings']) {
+    for (final t in ['checklist', 'itinerary', 'notes', 'quiz_scores', 'settings', 'expenses', 'budgets']) {
       await d.execute('DROP TABLE IF EXISTS $t');
     }
   }
@@ -54,6 +59,32 @@ class AppDb {
     await d.execute('''CREATE TABLE settings(
       user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT,
       PRIMARY KEY (user_id, key))''');
+  }
+
+  Future<void> _ensureBudgetTables(Database d) async {
+    await d.execute('''
+      CREATE TABLE IF NOT EXISTS budgets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        total_amount INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await d.execute('''
+      CREATE TABLE IF NOT EXISTS expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        budget_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        date TEXT NOT NULL,
+        note TEXT,
+        FOREIGN KEY (budget_id) REFERENCES budgets(id) ON DELETE CASCADE
+      )
+    ''');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(user_id)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_expenses_budget ON expenses(budget_id)');
   }
 
   void _bump() => version.value++;

@@ -360,7 +360,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             width: 96,
                             height: 96,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
+                            errorBuilder: (_, _, _) =>
                                 const StDefaultAvatar(size: 96),
                           )
                         : const StDefaultAvatar(size: 96),

@@ -18,10 +18,10 @@ class ApiException implements Exception {
 class ApiClient {
   // Chrome (web)     : http://localhost/studytrip_api
   // Emulator Android : http://10.0.2.2/studytrip_api
-  // HP asli (1 WiFi) : http://192.168.100.134/studytrip_api  (cek IP dengan `ipconfig`)
+  // HP asli (1 WiFi) : http://192.168.0.110/studytrip_api (IP Wi-Fi laptop saat ini)
   static String get baseUrl => kIsWeb
       ? 'http://localhost/studytrip_api'
-      : 'http://10.0.2.2/studytrip_api';
+      : 'http://192.168.0.110/studytrip_api';
 
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'token';

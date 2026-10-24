@@ -103,14 +103,14 @@ class _HomeScreenState extends State<HomeScreen> {
         );
     if (uni?.asset != null) {
       return Image.asset(uni!.asset!,
-          fit: BoxFit.cover, width: double.infinity, height: double.infinity, errorBuilder: (_, __, ___) => art());
+          fit: BoxFit.cover, width: double.infinity, height: double.infinity, errorBuilder: (_, _, _) => art());
     }
     if (uni?.image != null) {
       return Image.network(uni!.image!,
           fit: BoxFit.cover,
           width: double.infinity,
           height: double.infinity,
-          errorBuilder: (_, __, ___) => art(),
+          errorBuilder: (_, _, _) => art(),
           loadingBuilder: (c, child, p) => p == null ? child : art());
     }
     return art();
@@ -189,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     height: 36,
                     child: _photoUrl == null
                         ? _avatarFallback()
-                        : Image.network(_photoUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _avatarFallback()),
+                        : Image.network(_photoUrl!, fit: BoxFit.cover, errorBuilder: (_, _, _) => _avatarFallback()),
                   ),
                 ),
               ),

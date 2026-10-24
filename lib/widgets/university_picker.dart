@@ -54,7 +54,7 @@ class _UniversityPickerState extends State<_UniversityPicker> {
                   ? const Center(child: Text('Kampus tidak ditemukan'))
                   : ListView.separated(
                       itemCount: list.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (_, i) {
                         final u = list[i];
                         final sel = u.name == widget.selected;

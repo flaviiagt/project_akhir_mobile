@@ -13,6 +13,11 @@ import 'features/auth/login_page.dart';
 import 'features/auth/register_page.dart';
 import 'features/auth/splash_page.dart';
 import 'features/shell/main_shell.dart';
+import 'features/feedback/feedback_page.dart';
+import 'screens/checklist_screen.dart';
+import 'screens/itinerary_screen.dart';
+import 'screens/notes_screen.dart';
+import 'screens/quiz_screen.dart';
 import 'services/notification_service.dart';
 
 Future<void> main() async {
@@ -72,6 +77,15 @@ class StudyTripApp extends StatelessWidget {
         '/login': (_) => const LoginPage(),
         '/register': (_) => const RegisterPage(),
         '/home': (_) => const MainShell(),
+        '/budget': (_) => const MainShell(initialIndex: 1),
+        '/tools': (_) => const MainShell(initialIndex: 2),
+        '/exploration': (_) => const MainShell(initialIndex: 3),
+        '/profile': (_) => const MainShell(initialIndex: 4),
+        '/checklist': (_) => const ChecklistScreen(),
+        '/itinerary': (_) => const ItineraryScreen(),
+        '/notes': (_) => const NotesScreen(),
+        '/quiz': (_) => const QuizScreen(),
+        '/feedback': (_) => const FeedbackPage(),
       },
     );
   }

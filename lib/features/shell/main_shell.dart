@@ -1,35 +1,36 @@
 import 'package:flutter/material.dart';
 
-import '../../core/app_theme.dart';
-import '../../widgets/st_widgets.dart';
+import '../../config.dart';
+import '../../core/current_user.dart';
+import '../../pages/budget_page.dart';
+import '../../pages/exploration_page.dart';
+import '../../pages/tools_page.dart';
 import '../../screens/home_screen.dart';
 import '../profile/profile_page.dart';
 
 class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+  final int initialIndex;
+  const MainShell({super.key, this.initialIndex = 0});
   @override
   State<MainShell> createState() => _MainShellState();
 }
 
 class _MainShellState extends State<MainShell> {
-  int _index = 0;
-
-  // FR-30: Beranda, Anggaran, Alat, Eksplorasi, Profil
-  final _pages = const [
-    HomeScreen(), // Anggota 2
-    _Placeholder(
-      'Anggaran',
-      Icons.account_balance_wallet_outlined,
-    ), // Anggota 3
-    _Placeholder('Alat', Icons.construction), // Anggota 3
-    _Placeholder('Eksplorasi', Icons.travel_explore), // Anggota 3
-    ProfilePage(), // Anggota 1
-  ];
+  late int _index = widget.initialIndex;
 
   @override
   Widget build(BuildContext context) {
+    final userId = int.tryParse(CurrentUser.id ?? '') ?? kTempUserId;
+    final pages = [
+      HomeScreen(onProfileTap: () => setState(() => _index = 4)), // Beranda (Anggota 2)
+      BudgetPage(userId: userId),                                  // Anggaran (Anggota 3)
+      const ToolsPage(),                                          // Alat & Utilitas (Anggota 3)
+      const ExplorationPage(),                                    // Eksplorasi (Anggota 3)
+      const ProfilePage(),                                        // Profil (Anggota 1)
+    ];
+
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
@@ -45,8 +46,8 @@ class _MainShellState extends State<MainShell> {
             label: 'Anggaran',
           ),
           NavigationDestination(
-            icon: Icon(Icons.construction_outlined),
-            selectedIcon: Icon(Icons.construction),
+            icon: Icon(Icons.handyman_outlined),
+            selectedIcon: Icon(Icons.handyman),
             label: 'Alat',
           ),
           NavigationDestination(
@@ -60,34 +61,6 @@ class _MainShellState extends State<MainShell> {
             label: 'Profil',
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Placeholder extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  const _Placeholder(this.title, this.icon);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: StAppBar(title: title),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 56, color: AppColors.teal),
-            const SizedBox(height: 12),
-            Text('Halaman $title', style: AppText.headline(20)),
-            const SizedBox(height: 4),
-            const Text(
-              'Dikerjakan anggota lain',
-              style: TextStyle(color: AppColors.muted),
-            ),
-          ],
-        ),
       ),
     );
   }
