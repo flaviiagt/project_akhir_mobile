@@ -39,6 +39,9 @@ class CampusMapPage extends StatefulWidget {
 
 class _CampusMapPageState extends State<CampusMapPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  static bool _hasShownLocationPromptThisSession = false;
+  static bool _locationWasManuallyDisabled = false;
+
   final MapController _map = MapController();
   late final AnimationController _lineCtrl;
   final TextEditingController _search = TextEditingController();
@@ -67,8 +70,9 @@ class _CampusMapPageState extends State<CampusMapPage>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     );
-    // Izin lokasi diminta setelah halaman tampil.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _requestLocation());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _prepareLocationForMapEntry(),
+    );
   }
 
   @override
@@ -121,7 +125,56 @@ class _CampusMapPageState extends State<CampusMapPage>
     );
   }
 
-  Future<void> _requestLocation() async {
+  Future<void> _prepareLocationForMapEntry() async {
+    if (!mounted) return;
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      final permission = await Geolocator.checkPermission();
+      final needsPrompt =
+          !_hasShownLocationPromptThisSession ||
+          _locationWasManuallyDisabled ||
+          !serviceEnabled ||
+          permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever;
+
+      if (needsPrompt) {
+        _hasShownLocationPromptThisSession = true;
+        final agree = await _showRationale();
+        if (!mounted) return;
+        if (agree != true) {
+          if (_locationWasManuallyDisabled) {
+            _setLoc(_Loc.off);
+          } else if (!serviceEnabled) {
+            _setLoc(_Loc.serviceOff);
+          } else if (permission == LocationPermission.deniedForever) {
+            _setLoc(_Loc.deniedForever);
+          } else {
+            _setLoc(_Loc.denied);
+          }
+          return;
+        }
+
+        _locationWasManuallyDisabled = false;
+        if (!serviceEnabled) {
+          _setLoc(_Loc.serviceOff);
+          await Geolocator.openLocationSettings();
+          return;
+        }
+        if (permission == LocationPermission.deniedForever) {
+          _setLoc(_Loc.deniedForever);
+          await Geolocator.openAppSettings();
+          return;
+        }
+      }
+
+      await _requestLocation(showRationale: false);
+    } catch (_) {
+      _setLoc(_Loc.error);
+    }
+  }
+
+  Future<void> _requestLocation({bool showRationale = true}) async {
     if (!mounted) return;
     setState(() => _loc = _Loc.loading);
     try {
@@ -132,10 +185,12 @@ class _CampusMapPageState extends State<CampusMapPage>
 
       var perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied) {
-        final agree = await _showRationale();
-        if (agree != true) {
-          _setLoc(_Loc.denied);
-          return;
+        if (showRationale) {
+          final agree = await _showRationale();
+          if (agree != true) {
+            _setLoc(_Loc.denied);
+            return;
+          }
         }
         perm = await Geolocator.requestPermission();
       }
@@ -172,6 +227,7 @@ class _CampusMapPageState extends State<CampusMapPage>
 
   void _turnOff() {
     _lineCtrl.stop();
+    _locationWasManuallyDisabled = true;
     setState(() {
       _loc = _Loc.off;
       _user = null;
