@@ -8,6 +8,7 @@ import '../data/universities.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/st_widgets.dart';
+import 'blockchain_screen.dart';
 import 'checklist_screen.dart';
 import 'itinerary_screen.dart';
 import 'notes_screen.dart';
@@ -460,6 +461,33 @@ class _HomeScreenState extends State<HomeScreen> {
                     () => _open(const QuizScreen()),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              SoftCard(
+                onTap: () => _open(const BlockchainScreen()),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      backgroundColor: kAmberTint,
+                      child: Icon(Icons.verified_user_outlined, color: kPrimary),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Bukti Blockchain',
+                              style: headlineStyle(16, weight: FontWeight.w700)),
+                          const Text(
+                            'Catat dan verifikasi progresmu di testnet',
+                            style: TextStyle(fontSize: 12, color: kSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, color: kSecondary),
+                  ],
+                ),
               ),
             ],
           ),

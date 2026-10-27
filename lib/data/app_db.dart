@@ -41,7 +41,7 @@ class AppDb {
     final path = kIsWeb ? 'studytrip.db' : join(await getDatabasesPath(), 'studytrip.db');
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
       onCreate: (d, v) => _createTables(d),
       onUpgrade: (d, oldV, newV) async {
@@ -53,12 +53,13 @@ class AppDb {
         }
         if (oldV < 3) await _migrateV2toV3(d); // v2 -> v3: kolom sinkronisasi cloud
         if (oldV < 4) await createBudgetTables(d); // v3 -> v4: tabel Anggaran (Anggota 3)
+        if (oldV < 5) await _createChainTables(d); // v4 -> v5: catatan blockchain
       },
     );
   }
 
   Future<void> _dropTables(Database d) async {
-    for (final t in ['expenses', 'budgets', 'checklist', 'itinerary', 'notes', 'quiz_scores', 'settings']) {
+    for (final t in ['chain_records', 'expenses', 'budgets', 'checklist', 'itinerary', 'notes', 'quiz_scores', 'settings']) {
       await d.execute('DROP TABLE IF EXISTS $t');
     }
   }
@@ -89,6 +90,17 @@ class AppDb {
       await d.execute('CREATE UNIQUE INDEX idx_${t}_rid ON $t(user_id, rid)');
     }
     await createBudgetTables(d); // Anggota 3: Anggaran & Pengeluaran
+    await _createChainTables(d); // Catatan blockchain
+  }
+
+  /// Catatan blockchain: payload tetap lokal, yang masuk jaringan hanya hash-nya.
+  /// Tidak disinkronkan ke Supabase (bukti utamanya ada di blockchain).
+  Future<void> _createChainTables(Database d) async {
+    await d.execute('''CREATE TABLE IF NOT EXISTS chain_records(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL,
+      kind TEXT NOT NULL, title TEXT NOT NULL, payload TEXT NOT NULL, hash TEXT NOT NULL,
+      tx_hash TEXT, status TEXT NOT NULL DEFAULT 'draft', block_number INTEGER,
+      error TEXT, created_at TEXT NOT NULL)''');
   }
 
   /// Data lama dipertahankan; semuanya ditandai dirty supaya terkirim ke cloud.
