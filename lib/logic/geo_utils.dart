@@ -17,9 +17,14 @@ double haversineKm(LatLng a, LatLng b) {
   return 2 * r * math.asin(math.min(1.0, math.sqrt(h)));
 }
 
-/// Busur lingkaran-besar dari [a] ke [b]. Jika busur melewati garis bujur 180,
-/// hasilnya dipotong menjadi beberapa segmen supaya garis tidak melompat
-/// melintasi seluruh peta.
+/// Busur lingkaran-besar dari [a] ke [b] sebagai SATU garis menerus.
+///
+/// Bujur sengaja "tidak dibungkus" (boleh lewat 180 atau -180). Contoh:
+/// Depok (107) -> Berkeley (-122) menjadi 107 ... 180 ... 238. Dengan begitu
+/// garis tidak patah di tepi peta dan kamera cukup memuat selisih bujur
+/// terpendek, sehingga kedua ujung rute muat di layar tanpa menggeser peta.
+///
+/// Tipe kembalian tetap List<List<LatLng>> agar kompatibel dengan halaman peta.
 List<List<LatLng>> greatCircleArc(LatLng a, LatLng b, {int steps = 96}) {
   final lat1 = _rad(a.latitude), lon1 = _rad(a.longitude);
   final lat2 = _rad(b.latitude), lon2 = _rad(b.longitude);
@@ -37,8 +42,8 @@ List<List<LatLng>> greatCircleArc(LatLng a, LatLng b, {int steps = 96}) {
     ];
   }
 
-  final segments = <List<LatLng>>[<LatLng>[]];
-  LatLng? prev;
+  final pts = <LatLng>[];
+  var prevLon = a.longitude;
   for (var i = 0; i <= steps; i++) {
     final f = i / steps;
     final k1 = math.sin((1 - f) * d) / math.sin(d);
@@ -48,29 +53,27 @@ List<List<LatLng>> greatCircleArc(LatLng a, LatLng b, {int steps = 96}) {
     final y = k1 * math.cos(lat1) * math.sin(lon1) +
         k2 * math.cos(lat2) * math.sin(lon2);
     final z = k1 * math.sin(lat1) + k2 * math.sin(lat2);
-    final cur = LatLng(
-      _deg(math.atan2(z, math.sqrt(x * x + y * y))),
-      _deg(math.atan2(y, x)),
-    );
 
-    if (prev != null && (cur.longitude - prev.longitude).abs() > 180) {
-      // Busur menyeberangi garis bujur 180: potong di tepi peta.
-      final edge = prev.longitude > 0 ? 180.0 : -180.0;
-      final curUnwrapped =
-          prev.longitude > 0 ? cur.longitude + 360 : cur.longitude - 360;
-      final t = (edge - prev.longitude) / (curUnwrapped - prev.longitude);
-      final latC = prev.latitude + t * (cur.latitude - prev.latitude);
-      segments.last.add(LatLng(latC, edge));
-      segments.add(<LatLng>[LatLng(latC, -edge)]);
+    final lat = _deg(math.atan2(z, math.sqrt(x * x + y * y)));
+    var lon = _deg(math.atan2(y, x));
+
+    // Buka lipatan bujur: pilih nilai (lon +/- 360) yang terdekat dengan
+    // titik sebelumnya, sehingga garis kontinu.
+    while (lon - prevLon > 180) {
+      lon -= 360;
     }
-    segments.last.add(cur);
-    prev = cur;
+    while (lon - prevLon < -180) {
+      lon += 360;
+    }
+    prevLon = lon;
+    pts.add(LatLng(lat, lon));
   }
 
-  // Ujung busur dibuat persis sama dengan titik asal dan tujuan.
-  segments.first[0] = a;
-  segments.last[segments.last.length - 1] = b;
-  return segments;
+  // Ujung busur dibuat persis sama dengan titik asal dan tujuan
+  // (bujur tujuan tetap versi yang sudah dibuka lipatannya).
+  pts[0] = a;
+  pts[pts.length - 1] = LatLng(b.latitude, pts.last.longitude);
+  return [pts];
 }
 
 /// Estimasi waktu terbang kasar (kecepatan rata-rata 850 km/jam, tanpa transit).

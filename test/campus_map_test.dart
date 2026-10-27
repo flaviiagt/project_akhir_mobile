@@ -37,16 +37,18 @@ void main() {
     expect(arc.last.last.longitude, london.longitude);
   });
 
-  test('busur Jakarta-Stanford terpotong di garis bujur 180', () {
+  test('busur Jakarta-Stanford menerus melewati garis bujur 180', () {
     const jakarta = LatLng(-6.2088, 106.8456);
     final stanford = kCampusCoordinates['Stanford University']!;
     final arc = greatCircleArc(jakarta, stanford);
-    expect(arc.length, 2);
-    for (final seg in arc) {
-      for (var i = 1; i < seg.length; i++) {
-        expect((seg[i].longitude - seg[i - 1].longitude).abs(), lessThan(180));
-      }
+    expect(arc.length, 1);
+    for (var i = 1; i < arc.single.length; i++) {
+      expect(
+        (arc.single[i].longitude - arc.single[i - 1].longitude).abs(),
+        lessThan(180),
+      );
     }
+    expect(arc.single.last.longitude, closeTo(stanford.longitude + 360, 0.001));
   });
 
   test('format estimasi waktu terbang', () {

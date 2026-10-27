@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local API keys and private build-time defines
+/env.json
+/dart_defines.json
+/gemini_defines.json
+
 # Symbolication related
 app.*.symbols
 

@@ -1,7 +1,11 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
+import '../data/universities.dart';
 import '../theme/app_theme.dart';
 
 class IndoZone {
@@ -21,60 +25,93 @@ class IndoZone {
 class DestZone {
   final String city;
   final String country;
-  final String code;
-  final int offsetHours;
+  final String timeZoneId;
 
   const DestZone({
     required this.city,
     required this.country,
-    required this.code,
-    required this.offsetHours,
+    required this.timeZoneId,
   });
 }
 
 const List<IndoZone> kIndoZones = [
-  IndoZone(
-    code: 'WIB',
-    label: 'WIB',
-    city: 'Jakarta',
-    offsetHours: 7,
-  ),
+  IndoZone(code: 'WIB', label: 'WIB', city: 'Jakarta', offsetHours: 7),
   IndoZone(
     code: 'WITA',
     label: 'WITA',
     city: 'Bali / Makassar',
     offsetHours: 8,
   ),
-  IndoZone(
-    code: 'WIT',
-    label: 'WIT',
-    city: 'Jayapura',
-    offsetHours: 9,
-  ),
+  IndoZone(code: 'WIT', label: 'WIT', city: 'Jayapura', offsetHours: 9),
 ];
 
-const List<DestZone> kDestZones = [
-  DestZone(
-    city: 'London',
-    country: 'UK',
-    code: 'BST (GMT+1)',
-    offsetHours: 1,
-  ),
-  DestZone(
-    city: 'Edinburgh',
-    country: 'UK',
-    code: 'BST (GMT+1)',
-    offsetHours: 1,
-  ),
-];
+const DestZone kLondonDestZone = DestZone(
+  city: 'London',
+  country: 'Inggris',
+  timeZoneId: 'Europe/London',
+);
+
+/// Mengembalikan zona waktu kota dari pilihan kampus di profil.
+DestZone? destinationZoneForProgram(String? program) {
+  final university = findUniversity(program);
+  if (university == null) return null;
+
+  final timeZoneId = switch (university.country) {
+    'Skotlandia' || 'Inggris' => 'Europe/London',
+    'Belanda' => 'Europe/Amsterdam',
+    'Amerika Serikat' =>
+      university.city == 'Stanford' ||
+              university.city == 'Pasadena' ||
+              university.city == 'Berkeley'
+          ? 'America/Los_Angeles'
+          : 'America/New_York',
+    'Swiss' => 'Europe/Zurich',
+    'Singapura' => 'Asia/Singapore',
+    'Hong Kong' => 'Asia/Hong_Kong',
+    'Tiongkok' => 'Asia/Shanghai',
+    'Australia' => 'Australia/Sydney',
+    'Jerman' => 'Europe/Berlin',
+    _ => null,
+  };
+  if (timeZoneId == null) return null;
+  return DestZone(
+    city: university.city,
+    country: university.country,
+    timeZoneId: timeZoneId,
+  );
+}
+
+/// London selalu tersedia; kampus tujuan menambahkan satu opsi kota profil.
+List<DestZone> destinationZonesForProgram(String? program) {
+  final campusZone = destinationZoneForProgram(program);
+  if (campusZone == null || campusZone.city == kLondonDestZone.city) {
+    return [kLondonDestZone];
+  }
+  return [kLondonDestZone, campusZone];
+}
+
+bool _timeZonesInitialized = false;
+
+void _ensureTimeZonesInitialized() {
+  if (_timeZonesInitialized) return;
+  tzdata.initializeTimeZones();
+  _timeZonesInitialized = true;
+}
+
+tz.TZDateTime destinationTimeAt(DestZone zone, DateTime utc) {
+  _ensureTimeZonesInitialized();
+  return tz.TZDateTime.from(utc, tz.getLocation(zone.timeZoneId));
+}
 
 /// Kartu konversi zona waktu (WIB, WITA, WIT, London).
 class TimezoneConverterCard extends StatefulWidget {
   final ValueChanged<int>? onDifferenceChanged;
+  final String? destinationProgram;
 
   const TimezoneConverterCard({
     super.key,
     this.onDifferenceChanged,
+    this.destinationProgram,
   });
 
   @override
@@ -83,18 +120,39 @@ class TimezoneConverterCard extends StatefulWidget {
 
 class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
   IndoZone _selectedIndo = kIndoZones[0]; // WIB (GMT+7)
-  DestZone _selectedDest = kDestZones[0]; // London (GMT+1)
+  DestZone _selectedDest = kLondonDestZone;
 
   Timer? _timer;
   DateTime _now = DateTime.now().toUtc();
   bool _isCustomTime = false;
   int _customHour = 20;
   int _customMinute = 30;
+  int? _lastNotifiedDifference;
 
   @override
   void initState() {
     super.initState();
+    _ensureTimeZonesInitialized();
     _startTimer();
+    _notifyDifference();
+  }
+
+  @override
+  void didUpdateWidget(covariant TimezoneConverterCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.destinationProgram != widget.destinationProgram) {
+      if (_selectedDest.city != kLondonDestZone.city) {
+        final campusZone = destinationZoneForProgram(widget.destinationProgram);
+        if (campusZone != null &&
+            campusZone.city == _selectedDest.city &&
+            campusZone.timeZoneId == _selectedDest.timeZoneId) {
+          _selectedDest = campusZone;
+        } else {
+          _selectedDest = kLondonDestZone;
+        }
+      }
+      _notifyDifference();
+    }
   }
 
   @override
@@ -109,16 +167,24 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
         setState(() {
           _now = DateTime.now().toUtc();
         });
+        _notifyDifference();
       }
     });
   }
 
-  int get _hourDifference => _selectedDest.offsetHours - _selectedIndo.offsetHours;
+  tz.TZDateTime get _destTime =>
+      destinationTimeAt(_selectedDest, _effectiveUtc);
+
+  int get _hourDifference =>
+      _destTime.timeZoneOffset.inHours - _selectedIndo.offsetHours;
 
   void _notifyDifference() {
+    final difference = _hourDifference;
+    if (_lastNotifiedDifference == difference) return;
+    _lastNotifiedDifference = difference;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        widget.onDifferenceChanged?.call(_hourDifference);
+        widget.onDifferenceChanged?.call(difference);
       }
     });
   }
@@ -129,13 +195,18 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
     }
     final today = DateTime.now();
     // custom time is specified in selected Indo zone
-    final indoDateTime = DateTime(today.year, today.month, today.day, _customHour, _customMinute);
+    final indoDateTime = DateTime(
+      today.year,
+      today.month,
+      today.day,
+      _customHour,
+      _customMinute,
+    );
     return indoDateTime.subtract(Duration(hours: _selectedIndo.offsetHours));
   }
 
-  DateTime get _indoTime => _effectiveUtc.add(Duration(hours: _selectedIndo.offsetHours));
-  DateTime get _destTime => _effectiveUtc.add(Duration(hours: _selectedDest.offsetHours));
-
+  DateTime get _indoTime =>
+      _effectiveUtc.add(Duration(hours: _selectedIndo.offsetHours));
   String _formatTime(DateTime dt) {
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
@@ -203,7 +274,10 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                           shape: const StadiumBorder(),
                           side: BorderSide.none,
                           visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 0,
+                          ),
                           onSelected: (_) {
                             setState(() {
                               _selectedIndo = z;
@@ -221,7 +295,7 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
 
           const SizedBox(height: 8),
 
-          // Selector chips for Dest zones (London / Edinburgh)
+          // London is always available; the profile campus adds one city option.
           Row(
             children: [
               const Text(
@@ -237,34 +311,42 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: kDestZones.map((d) {
-                      final selected = d.city == _selectedDest.city;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: ChoiceChip(
-                          label: Text(d.city),
-                          selected: selected,
-                          showCheckmark: false,
-                          selectedColor: ToolColors.brown,
-                          backgroundColor: const Color(0xFFF3F5F7),
-                          labelStyle: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: selected ? Colors.white : ToolColors.navy,
-                          ),
-                          shape: const StadiumBorder(),
-                          side: BorderSide.none,
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                          onSelected: (_) {
-                            setState(() {
-                              _selectedDest = d;
-                              _notifyDifference();
-                            });
-                          },
-                        ),
-                      );
-                    }).toList(),
+                    children:
+                        destinationZonesForProgram(widget.destinationProgram)
+                            .map((d) {
+                              final selected = d.city == _selectedDest.city;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: ChoiceChip(
+                                  label: Text(d.city),
+                                  selected: selected,
+                                  showCheckmark: false,
+                                  selectedColor: ToolColors.brown,
+                                  backgroundColor: const Color(0xFFF3F5F7),
+                                  labelStyle: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: selected
+                                        ? Colors.white
+                                        : ToolColors.navy,
+                                  ),
+                                  shape: const StadiumBorder(),
+                                  side: BorderSide.none,
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 0,
+                                  ),
+                                  onSelected: (_) {
+                                    setState(() {
+                                      _selectedDest = d;
+                                      _notifyDifference();
+                                    });
+                                  },
+                                ),
+                              );
+                            })
+                            .toList(),
                   ),
                 ),
               ),
@@ -280,7 +362,10 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
               // Left Card: Keluarga (Rumah)
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 18,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF3F5F8),
                     borderRadius: BorderRadius.circular(24),
@@ -291,12 +376,18 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: indoNight ? const Color(0xFFE2EAFD) : const Color(0xFFFEF3D6),
+                          color: indoNight
+                              ? const Color(0xFFE2EAFD)
+                              : const Color(0xFFFEF3D6),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          indoNight ? Icons.nightlight_round : Icons.wb_sunny_outlined,
-                          color: indoNight ? const Color(0xFF4C63B6) : const Color(0xFFD97706),
+                          indoNight
+                              ? Icons.nightlight_round
+                              : Icons.wb_sunny_outlined,
+                          color: indoNight
+                              ? const Color(0xFF4C63B6)
+                              : const Color(0xFFD97706),
                           size: 22,
                         ),
                       ),
@@ -357,10 +448,13 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
 
               const SizedBox(width: 12),
 
-              // Right Card: Kampus Tujuan (London / Edinburgh)
+              // Right Card: Kampus Tujuan
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 18,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF0F8F8),
                     borderRadius: BorderRadius.circular(24),
@@ -371,12 +465,18 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: destNight ? const Color(0xFFE2EAFD) : const Color(0xFFFEF3D6),
+                          color: destNight
+                              ? const Color(0xFFE2EAFD)
+                              : const Color(0xFFFEF3D6),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          destNight ? Icons.nightlight_round : Icons.wb_sunny_outlined,
-                          color: destNight ? const Color(0xFF4C63B6) : const Color(0xFFD97706),
+                          destNight
+                              ? Icons.nightlight_round
+                              : Icons.wb_sunny_outlined,
+                          color: destNight
+                              ? const Color(0xFF4C63B6)
+                              : const Color(0xFFD97706),
                           size: 22,
                         ),
                       ),
@@ -390,7 +490,9 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                           color: ToolColors.teal,
                         ),
                       ),
-                      const SizedBox(height: 14), // balancing height with (RUMAH)
+                      const SizedBox(
+                        height: 14,
+                      ), // balancing height with (RUMAH)
                       Text(
                         _selectedDest.city,
                         textAlign: TextAlign.center,
@@ -414,7 +516,7 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _selectedDest.code,
+                        '${_destTime.timeZoneName} (${_formatUtcOffset(_destTime.timeZoneOffset)})',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -453,7 +555,7 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -466,11 +568,8 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                         ),
                       ),
                       Text(
-                        '12:00 London = waktu santai keluarga',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: ToolColors.slate,
-                        ),
+                        '12:00 ${_selectedDest.city} = waktu santai keluarga',
+                        style: TextStyle(fontSize: 10, color: ToolColors.slate),
                       ),
                     ],
                   ),
@@ -519,7 +618,10 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
                 ),
                 label: Text(
                   _isCustomTime ? 'Mode Simulasi Jam' : 'Live Waktu Nyata',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 onPressed: () {
                   setState(() {
@@ -578,13 +680,19 @@ class _TimezoneConverterCardState extends State<TimezoneConverterCard> {
   }
 
   String _calculateIdealIndoTime() {
-    // 12:00 London is lunch break
-    // In Indo = 12:00 + (Indo offset - Dest offset)
-    // For WIB (7) & London (1): 12 + 6 = 18:00 WIB
-    // For WITA (8) & London (1): 12 + 7 = 19:00 WITA
-    // For WIT (9) & London (1): 12 + 8 = 20:00 WIT
-    final idealHour = (12 + (_selectedIndo.offsetHours - _selectedDest.offsetHours)) % 24;
+    final idealHour =
+        (12 + (_selectedIndo.offsetHours - _destTime.timeZoneOffset.inHours)) %
+        24;
     return '${idealHour.toString().padLeft(2, '0')}:00';
+  }
+
+  String _formatUtcOffset(Duration offset) {
+    final minutes = offset.inMinutes;
+    final sign = minutes >= 0 ? '+' : '-';
+    final absolute = minutes.abs();
+    final hours = (absolute ~/ 60).toString().padLeft(2, '0');
+    final remainder = absolute % 60;
+    return 'GMT$sign$hours${remainder == 0 ? '' : ':${remainder.toString().padLeft(2, '0')}'}';
   }
 
   Future<void> _pickCustomTime(BuildContext context) async {

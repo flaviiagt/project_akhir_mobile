@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -43,6 +44,9 @@ class _CampusMapPageState extends State<CampusMapPage>
   static bool _locationWasManuallyDisabled = false;
 
   final MapController _map = MapController();
+  final ValueNotifier<int> _cameraTick = ValueNotifier<int>(0);
+  StreamSubscription<MapEvent>? _camSub;
+  Size? _mapSize;
   late final AnimationController _lineCtrl;
   final TextEditingController _search = TextEditingController();
 
@@ -70,13 +74,21 @@ class _CampusMapPageState extends State<CampusMapPage>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     );
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _prepareLocationForMapEntry(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Garis rute digambar manual: perlu digambar ulang saat kamera bergerak.
+      try {
+        _camSub = _map.mapEventStream.listen((_) {
+          if (mounted) _cameraTick.value++;
+        });
+      } catch (_) {}
+      _prepareLocationForMapEntry();
+    });
   }
 
   @override
   void dispose() {
+    _camSub?.cancel();
+    _cameraTick.dispose();
     _map.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _lineCtrl.dispose();
@@ -307,19 +319,15 @@ class _CampusMapPageState extends State<CampusMapPage>
     if (c == null) return;
 
     if (_loc == _Loc.active && u != null) {
+      // Busur sudah "dibuka lipatannya" (bujur boleh > 180), sehingga kamera
+      // hanya memuat selisih bujur terpendek dan kedua ujung muat di layar.
       final arc = greatCircleArc(u, c.point);
       setState(() {
         _arc = arc;
         _distanceKm = haversineKm(u, c.point);
       });
       _lineCtrl.forward(from: 0);
-      _map.fitCamera(
-        CameraFit.coordinates(
-          coordinates: [for (final seg in arc) ...seg],
-          padding: const EdgeInsets.fromLTRB(48, 90, 48, 270),
-          maxZoom: 10,
-        ),
-      );
+      _fitRoute([for (final seg in arc) ...seg]);
     } else {
       _lineCtrl.stop();
       setState(() {
@@ -328,6 +336,55 @@ class _CampusMapPageState extends State<CampusMapPage>
       });
       _map.move(c.point, 6);
     }
+  }
+
+  /// Mengatur kamera agar seluruh rute muat di layar.
+  /// Dihitung manual karena titik rute boleh punya bujur di luar -180..180
+  /// (rute lewat garis tanggal), yang tidak diterima oleh fitCamera.
+  void _fitRoute(List<LatLng> pts) {
+    final size = _mapSize;
+    if (size == null || pts.isEmpty) return;
+    const padL = 48.0, padR = 48.0, padT = 90.0, padB = 270.0;
+    final availW = math.max(50.0, size.width - padL - padR);
+    final availH = math.max(50.0, size.height - padT - padB);
+
+    double fracY(double lat) {
+      final l = lat.clamp(-85.0511, 85.0511) * math.pi / 180;
+      return 0.5 - math.log(math.tan(math.pi / 4 + l / 2)) / (2 * math.pi);
+    }
+
+    var minLon = double.infinity, maxLon = -double.infinity;
+    var minLat = double.infinity, maxLat = -double.infinity;
+    for (final p in pts) {
+      minLon = math.min(minLon, p.longitude);
+      maxLon = math.max(maxLon, p.longitude);
+      minLat = math.min(minLat, p.latitude);
+      maxLat = math.max(maxLat, p.latitude);
+    }
+
+    final fx = math.max((maxLon - minLon) / 360, 1e-5);
+    final fy = math.max((fracY(minLat) - fracY(maxLat)).abs(), 1e-5);
+    final zW = math.log(availW / (256 * fx)) / math.ln2;
+    final zH = math.log(availH / (256 * fy)) / math.ln2;
+    final zoom = math.min(math.min(zW, zH), 10.0).clamp(1.0, 10.0).toDouble();
+    final s = 256 * math.pow(2, zoom).toDouble();
+
+    // Pusat rute harus jatuh di tengah area yang tidak tertutup UI.
+    final targetY = padT + availH / 2;
+    final midFy = (fracY(minLat) + fracY(maxLat)) / 2;
+    final centerFy = (midFy - (targetY - size.height / 2) / s).clamp(0.0, 1.0);
+    final n = math.pi * (1 - 2 * centerFy);
+    final sinhN = (math.exp(n) - math.exp(-n)) / 2;
+    final lat = (math.atan(sinhN) * 180 / math.pi).clamp(-85.0, 85.0);
+
+    var lon = (minLon + maxLon) / 2;
+    while (lon > 180) {
+      lon -= 360;
+    }
+    while (lon < -180) {
+      lon += 360;
+    }
+    _map.move(LatLng(lat.toDouble(), lon), zoom);
   }
 
   void _pickCountry(String country) {
@@ -460,68 +517,74 @@ class _CampusMapPageState extends State<CampusMapPage>
         if (c.name == _selected?.name) c,
     ];
 
-    return FlutterMap(
-      mapController: _map,
-      options: MapOptions(
-        initialCenter: const LatLng(25, 30),
-        initialZoom: 1.2,
-        minZoom: 1,
-        maxZoom: 17,
-        cameraConstraint: CameraConstraint.containCenter(
-          bounds: LatLngBounds(const LatLng(-85, -180), const LatLng(85, 180)),
-        ),
-        interactionOptions: InteractionOptions(
-          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-        ),
-        onTap: (_, _) => FocusScope.of(context).unfocus(),
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.studytrip',
-        ),
-        AnimatedBuilder(
-          animation: _lineCtrl,
-          builder: (context, _) {
-            final segs = _partial(_lineCtrl.value);
-            return PolylineLayer(
-              polylines: [
-                for (final s in segs)
-                  if (s.length > 1)
-                    Polyline(
-                      points: s,
-                      strokeWidth: 3.5,
-                      color: ToolColors.teal,
-                    ),
-              ],
-            );
-          },
-        ),
-        MarkerLayer(
-          markers: [
-            for (final c in ordered) _campusMarker(c),
-            if (_user != null && _loc == _Loc.active)
-              Marker(
-                point: _user!,
-                width: 26,
-                height: 26,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2F80ED),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 6),
-                    ],
+    return LayoutBuilder(
+      builder: (context, box) {
+        _mapSize = box.biggest;
+        return FlutterMap(
+          mapController: _map,
+          options: MapOptions(
+            initialCenter: const LatLng(25, 30),
+            initialZoom: 1.2,
+            minZoom: 1,
+            maxZoom: 17,
+            cameraConstraint: CameraConstraint.containCenter(
+              bounds: LatLngBounds(
+                const LatLng(-85, -180),
+                const LatLng(85, 180),
+              ),
+            ),
+            interactionOptions: InteractionOptions(
+              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+            ),
+            onTap: (_, _) => FocusScope.of(context).unfocus(),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.example.studytrip',
+            ),
+            // Garis rute digambar manual (lihat _RoutePainter) supaya boleh
+            // melewati bujur 180 tanpa memicu asersi LatLngBounds.
+            IgnorePointer(
+              child: SizedBox.expand(
+                child: CustomPaint(
+                  painter: _RoutePainter(
+                    map: _map,
+                    segments: () => _partial(_lineCtrl.value),
+                    color: ToolColors.teal,
+                    repaint: Listenable.merge([_lineCtrl, _cameraTick]),
                   ),
                 ),
               ),
+            ),
+            MarkerLayer(
+              markers: [
+                for (final c in ordered) _campusMarker(c),
+                if (_user != null && _loc == _Loc.active)
+                  Marker(
+                    point: _user!,
+                    width: 26,
+                    height: 26,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2F80ED),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 3),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black26, blurRadius: 6),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 
+  /// Marker selalu memakai koordinat asli dalam rentang bujur -180..180.
   Marker _campusMarker(MapCampus c) {
     final sel = _selected?.name == c.name;
     final size = sel ? 44.0 : 30.0;
@@ -1051,4 +1114,72 @@ class _CampusMapPageState extends State<CampusMapPage>
 
   String _formatKm(double km) =>
       '${NumberFormat.decimalPattern('id_ID').format(km.round())} km';
+}
+
+/// Menggambar garis rute memakai proyeksi Web Mercator yang sama dengan peta.
+/// Bujur titik tidak dibatasi -180..180, jadi rute lewat garis tanggal
+/// (mis. Depok -> Berkeley) tampil sebagai satu garis menerus. Garis digambar
+/// juga di salinan dunia kiri/kanan agar tetap terlihat saat peta digeser.
+class _RoutePainter extends CustomPainter {
+  _RoutePainter({
+    required this.map,
+    required this.segments,
+    required this.color,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  final MapController map;
+  final List<List<LatLng>> Function() segments;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final segs = segments();
+    if (segs.isEmpty) return;
+
+    final MapCamera cam;
+    try {
+      cam = map.camera;
+    } catch (_) {
+      return;
+    }
+    final s = 256.0 * math.pow(2, cam.zoom).toDouble();
+
+    double wx(double lon) => (lon + 180) / 360 * s;
+    double wy(double lat) {
+      final l = lat.clamp(-85.0511, 85.0511) * math.pi / 180;
+      return (0.5 - math.log(math.tan(math.pi / 4 + l / 2)) / (2 * math.pi)) *
+          s;
+    }
+
+    final dx = size.width / 2 - wx(cam.center.longitude);
+    final dy = size.height / 2 - wy(cam.center.latitude);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    for (final copy in const [-1, 0, 1]) {
+      for (final seg in segs) {
+        if (seg.length < 2) continue;
+        final path = ui.Path();
+        for (var i = 0; i < seg.length; i++) {
+          final x = wx(seg[i].longitude) + dx + copy * s;
+          final y = wy(seg[i].latitude) + dy;
+          if (i == 0) {
+            path.moveTo(x, y);
+          } else {
+            path.lineTo(x, y);
+          }
+        }
+        canvas.drawPath(path, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoutePainter old) => true;
 }
