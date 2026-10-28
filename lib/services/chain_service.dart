@@ -1,10 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
-import 'package:web3dart/web3dart.dart' as w3;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/chain_config.dart';
 import '../core/current_user.dart';
@@ -73,16 +72,15 @@ class _Receipt {
   const _Receipt(this.success, this.block);
 }
 
-/// Mencatat hash data ke blockchain (Ethereum Sepolia) dan memverifikasinya.
+/// Menyegel hash data ke blockchain (Ethereum Sepolia) dan memverifikasinya.
 ///
-/// Cara kerja: hash SHA-256 dari data dikirim sebagai transaksi 0 ETH ke alamat
-/// wallet aplikasi sendiri, dengan hash di kolom "input data". Transaksi itu
-/// publik dan permanen; siapa pun bisa memeriksanya di block explorer.
+/// Cara kerja: hash SHA-256 dari data dikirim ke Edge Function `seal-record`,
+/// yang menandatangani transaksi 0 ETH ke wallet server dengan hash di kolom
+/// "input data". Transaksi itu publik dan permanen; siapa pun bisa
+/// memeriksanya di block explorer. Pengguna tidak butuh wallet atau saldo.
 class ChainService {
   ChainService._();
   static final ChainService instance = ChainService._();
-
-  bool get configured => kChainPrivateKey.trim().isNotEmpty;
 
   // ---------- util ----------
 
@@ -91,28 +89,8 @@ class ChainService {
   static String _toHex(List<int> bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
-  static Uint8List _fromHex(String h) {
-    final out = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < out.length; i++) {
-      out[i] = int.parse(h.substring(2 * i, 2 * i + 2), radix: 16);
-    }
-    return out;
-  }
-
   /// Penanda akun yang tidak membocorkan id asli (hash, dipotong).
   String _userTag() => sha256Hex('studytrip:${CurrentUser.id ?? ''}').substring(0, 16);
-
-  w3.EthPrivateKey _credentials() {
-    var k = kChainPrivateKey.trim();
-    if (k.startsWith('0x') || k.startsWith('0X')) k = k.substring(2);
-    return w3.EthPrivateKey.fromHex(k);
-  }
-
-  Future<String?> walletAddress() async {
-    if (!configured) return null;
-    final a = await _credentials().extractAddress();
-    return a.hexEip55;
-  }
 
   String _friendly(Object e) {
     if (e is ChainException) return e.message;
@@ -121,15 +99,9 @@ class ChainService {
         s.contains('SocketException') ||
         s.contains('ClientException') ||
         s.contains('XMLHttpRequest')) {
-      return 'Tidak bisa menghubungi jaringan blockchain. Cek internet atau alamat RPC ($kChainRpcUrl).';
+      return 'Tidak bisa terhubung. Periksa koneksi internetmu lalu coba lagi.';
     }
-    if (s.contains('insufficient funds')) {
-      return 'Saldo testnet wallet tidak cukup. Isi dari faucet.';
-    }
-    if (s.contains('nonce too low') || s.contains('underpriced')) {
-      return 'Ada transaksi lain yang sedang diproses. Coba lagi sebentar lagi.';
-    }
-    return s.length > 200 ? '${s.substring(0, 200)}…' : s;
+    return 'Terjadi kendala. Coba lagi nanti.';
   }
 
   // ---------- JSON-RPC ----------
@@ -160,27 +132,32 @@ class ChainService {
   // ---------- kirim ----------
 
   Future<String> _send(String hashHex) async {
-    if (!configured) {
-      throw ChainException(
-          'Wallet blockchain belum diatur. Jalankan aplikasi dengan --dart-define-from-file=dart_defines.json (lihat BLOCKCHAIN.md).');
-    }
-    final client = w3.Web3Client(kChainRpcUrl, http.Client());
+    final SupabaseClient client;
     try {
-      final creds = _credentials();
-      final addr = await creds.extractAddress();
-      final balance = await client.getBalance(addr);
-      if (balance.getInWei == BigInt.zero) {
-        throw ChainException(
-            'Saldo testnet wallet masih 0. Isi dari faucet Sepolia ke alamat ${addr.hexEip55}.');
-      }
-      final data = Uint8List.fromList([...utf8.encode(kChainDataPrefix), ..._fromHex(hashHex)]);
-      return await client.sendTransaction(
-        creds,
-        w3.Transaction(to: addr, value: w3.EtherAmount.zero(), data: data, maxGas: 60000),
-        chainId: kChainId,
-      );
-    } finally {
-      await client.dispose();
+      client = Supabase.instance.client;
+    } catch (_) {
+      throw ChainException('Layanan cloud belum aktif di aplikasi ini.');
+    }
+    if (client.auth.currentSession == null) {
+      throw ChainException(
+          'Fitur ini butuh akun yang tersambung ke cloud. Coba keluar lalu masuk lagi saat internet aktif.');
+    }
+    try {
+      final res = await client.functions
+          .invoke('seal-record', body: {'hash': hashHex})
+          .timeout(const Duration(seconds: 40));
+      final d = res.data;
+      if (d is Map && d['txHash'] is String) return d['txHash'] as String;
+      throw ChainException('Penyegelan belum berhasil. Coba lagi nanti.');
+    } on ChainException {
+      rethrow;
+    } on FunctionException catch (e) {
+      final code = e.details is Map ? (e.details as Map)['error'] : null;
+      throw ChainException(switch (code) {
+        'rate_limit' => 'Batas penyegelan hari ini sudah tercapai. Coba lagi besok.',
+        'auth' => 'Sesi cloud berakhir. Coba keluar lalu masuk lagi.',
+        _ => 'Layanan penyegelan sedang tidak tersedia. Coba lagi nanti.',
+      });
     }
   }
 
@@ -249,30 +226,35 @@ class ChainService {
     await _submit(r.id, r.hash);
   }
 
+  /// Mengirim, lalu langsung kembali. Konfirmasi di jaringan ditunggu di
+  /// latar belakang (layar yang terbuka ikut diperbarui lewat AppDb.version).
   Future<void> _submit(int id, String hash) async {
     try {
       final tx = await _send(hash);
       await AppDb.instance.update('chain_records', id, {'tx_hash': tx, 'status': 'pending', 'error': null});
-      await _waitConfirmed(id, tx);
+      unawaited(_waitConfirmed(id, tx));
     } catch (e) {
       await AppDb.instance.update('chain_records', id, {'status': 'failed', 'error': _friendly(e)});
     }
   }
 
   Future<void> _waitConfirmed(int id, String tx) async {
-    for (var i = 0; i < 20; i++) {
-      await Future<void>.delayed(const Duration(seconds: 4));
-      final r = await _receipt(tx);
-      if (r != null) {
-        await AppDb.instance.update('chain_records', id, {
-          'status': r.success ? 'confirmed' : 'failed',
-          'block_number': r.block,
-          if (!r.success) 'error': 'Transaksi ditolak jaringan.',
-        });
-        return;
+    try {
+      for (var i = 0; i < 30; i++) {
+        await Future<void>.delayed(const Duration(seconds: 4));
+        final r = await _receipt(tx);
+        if (r != null) {
+          await AppDb.instance.update('chain_records', id, {
+            'status': r.success ? 'confirmed' : 'failed',
+            'block_number': r.block,
+            if (!r.success) 'error': 'Penyegelan ditolak jaringan.',
+          });
+          return;
+        }
       }
+    } catch (_) {
+      // abaikan: status "memproses" bisa diperbarui lagi lewat tombol di layar
     }
-    // masih pending: bisa dicek lagi lewat tombol "Cek status"
   }
 
   /// Perbarui status catatan yang masih menunggu konfirmasi.
@@ -284,7 +266,7 @@ class ChainService {
       await AppDb.instance.update('chain_records', r.id, {
         'status': rc.success ? 'confirmed' : 'failed',
         'block_number': rc.block,
-        if (!rc.success) 'error': 'Transaksi ditolak jaringan.',
+        if (!rc.success) 'error': 'Penyegelan ditolak jaringan.',
       });
     } catch (_) {
       // abaikan: akan dicoba lagi nanti
@@ -299,7 +281,7 @@ class ChainService {
     final lines = <String>[];
     final recomputed = sha256Hex(r.payload);
     if (recomputed != r.hash) {
-      return ChainVerification(false, 'Data lokal berubah', [
+      return ChainVerification(false, 'Data sudah berubah sejak disegel', [
         'Hash data sekarang tidak sama dengan hash yang dicatat.',
         'Dicatat : ${r.hash}',
         'Sekarang: $recomputed',
@@ -307,22 +289,22 @@ class ChainService {
     }
     lines.add('Hash data cocok:\n${r.hash}');
     if (r.txHash == null) {
-      return ChainVerification(false, 'Belum ada transaksi', [...lines, 'Catatan ini belum terkirim ke jaringan.']);
+      return ChainVerification(false, 'Belum tersegel', [...lines, 'Catatan ini belum terkirim ke jaringan.']);
     }
     try {
       final tx = await _rpc('eth_getTransactionByHash', [r.txHash]);
       if (tx is! Map) {
-        return ChainVerification(false, 'Transaksi tidak ditemukan',
+        return ChainVerification(false, 'Segel tidak ditemukan',
             [...lines, 'Jaringan tidak mengenali transaksi ${r.txHash}.']);
       }
       if (tx['blockNumber'] == null) {
-        return ChainVerification(false, 'Masih menunggu konfirmasi',
+        return ChainVerification(false, 'Segel masih diproses',
             [...lines, 'Transaksi sudah dikirim tetapi belum masuk blok. Coba lagi sebentar lagi.']);
       }
       final input = ((tx['input'] ?? tx['data']) as String? ?? '').toLowerCase();
       final expected = '0x${_toHex(utf8.encode(kChainDataPrefix))}${r.hash}';
       if (input != expected) {
-        return ChainVerification(false, 'Isi transaksi tidak cocok', [
+        return ChainVerification(false, 'Isi segel tidak cocok', [
           ...lines,
           'Data di blockchain tidak sama dengan hash catatan ini.',
           'Di blockchain: $input',
@@ -332,7 +314,7 @@ class ChainService {
       lines.add('Isi transaksi di blockchain cocok dengan hash.');
       final rc = await _receipt(r.txHash!);
       if (rc == null || !rc.success) {
-        return ChainVerification(false, 'Transaksi tidak berhasil', [...lines, 'Status transaksi di jaringan: gagal atau belum final.']);
+        return ChainVerification(false, 'Segel belum berhasil', [...lines, 'Status transaksi di jaringan: gagal atau belum final.']);
       }
       lines.add('Terkonfirmasi di blok ${rc.block}.');
       try {
@@ -345,9 +327,9 @@ class ChainService {
       } catch (_) {}
       lines.add('Jaringan: $kChainName');
       lines.add('Tx: ${r.txHash}');
-      return ChainVerification(true, 'Terverifikasi', lines);
+      return ChainVerification(true, 'Asli dan tidak berubah', lines);
     } catch (e) {
-      return ChainVerification(false, 'Tidak bisa memverifikasi', [...lines, _friendly(e)]);
+      return ChainVerification(false, 'Belum bisa memeriksa', [...lines, _friendly(e)]);
     }
   }
 }

@@ -4,6 +4,7 @@ import '../data/models.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'progress_proof_screen.dart';
 
 class ChecklistScreen extends StatefulWidget {
   const ChecklistScreen({super.key});
@@ -39,6 +40,9 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     await NotificationService.instance.rescheduleAll();
     await _load();
   }
+
+  void _openProof() => Navigator.push(
+      context, MaterialPageRoute(builder: (_) => const ProgressProofScreen()));
 
   Future<void> _toggle(ChecklistItem it) async {
     await AppDb.instance.update('checklist', it.id!, {'done': it.done ? 0 : 1});
@@ -125,7 +129,16 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   Widget build(BuildContext context) {
     final done = _items.where((e) => e.done).length;
     return Scaffold(
-      appBar: AppBar(title: const Text('Checklist Persiapan')),
+      appBar: AppBar(
+        title: const Text('Checklist Persiapan'),
+        actions: [
+          IconButton(
+            tooltip: 'Bukti progres',
+            icon: const Icon(Icons.verified_outlined),
+            onPressed: _openProof,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _form(),
         backgroundColor: kPrimary,
@@ -142,6 +155,26 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
                     padding: const EdgeInsets.only(bottom: 8, left: 4),
                     child: Text('$done dari ${_items.length} selesai'),
                   ),
+                  if (done == _items.length)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: SoftCard(
+                        color: kTealTint,
+                        shadow: false,
+                        onTap: _openProof,
+                        child: Row(children: [
+                          const Icon(Icons.verified_user_outlined, color: kPrimary),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Semua tugas selesai! Segel progresmu sebagai bukti.',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, color: kSecondary),
+                        ]),
+                      ),
+                    ),
                   for (final it in _items)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),

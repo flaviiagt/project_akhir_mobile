@@ -334,8 +334,6 @@ class _ChatWindowState extends State<_ChatWindow> {
   final _scrollCtrl = ScrollController();
   final List<_ChatMessage> _messages = [];
   bool _isLoading = false;
-  String _activeApiKey = '';
-  bool _isCheckingKey = true;
 
   static const _welcome = _ChatMessage(
     isAi: true,
@@ -351,7 +349,6 @@ class _ChatWindowState extends State<_ChatWindow> {
   void initState() {
     super.initState();
     _messages.add(_welcome);
-    _loadKeyStatus();
   }
 
   @override
@@ -359,20 +356,6 @@ class _ChatWindowState extends State<_ChatWindow> {
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadKeyStatus() async {
-    try {
-      final key = await GeminiService.instance.getActiveApiKey();
-      if (mounted) {
-        setState(() {
-          _activeApiKey = key;
-          _isCheckingKey = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _isCheckingKey = false);
-    }
   }
 
   void _scrollToBottom() {
@@ -480,79 +463,6 @@ class _ChatWindowState extends State<_ChatWindow> {
     _sendUserQuery(text);
   }
 
-  Future<void> _showApiKeyDialog() async {
-    String currentKey = '';
-    try {
-      currentKey = await GeminiService.instance.getActiveApiKey();
-    } catch (_) {}
-    if (!mounted) return;
-    final keyCtrl = TextEditingController(text: currentKey);
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Row(
-          children: [
-            Icon(Icons.key_rounded, color: ToolColors.teal),
-            SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                'API Key Gemini',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: ToolColors.ink,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Masukkan Google Gemini API Key. Kunci disimpan di perangkat.',
-              style: TextStyle(fontSize: 13, color: ToolColors.slate, height: 1.4),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: keyCtrl,
-              obscureText: true,
-              decoration: InputDecoration(
-                hintText: 'AIzaSy...',
-                labelText: 'Gemini API Key',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                filled: true,
-                fillColor: const Color(0xFFF7F8FA),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: ToolColors.teal),
-            onPressed: () async {
-              final nav = Navigator.of(ctx);
-              await GeminiService.instance.saveApiKey(keyCtrl.text);
-              _loadKeyStatus();
-              nav.pop();
-            },
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _confirmResetChat() {
     showDialog(
       context: context,
@@ -651,13 +561,6 @@ class _ChatWindowState extends State<_ChatWindow> {
                       ),
                       IconButton(
                         visualDensity: VisualDensity.compact,
-                        tooltip: 'Pengaturan API Key',
-                        icon: const Icon(Icons.settings_outlined,
-                            size: 20, color: ToolColors.slate),
-                        onPressed: _showApiKeyDialog,
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
                         tooltip: 'Bersihkan obrolan',
                         icon: const Icon(Icons.refresh_rounded,
                             size: 20, color: ToolColors.slate),
@@ -676,44 +579,6 @@ class _ChatWindowState extends State<_ChatWindow> {
               ),
             ),
           ),
-
-          if (!_isCheckingKey && _activeApiKey.isEmpty)
-            Container(
-              margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFECE5),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFF09873)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline,
-                      size: 16, color: Color(0xFFC8451B)),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                    child: Text(
-                      'API Key Gemini belum diatur.',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFFC8451B),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _showApiKeyDialog,
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: const Text('Atur',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ),
 
           // ---------- pesan ----------
           Expanded(

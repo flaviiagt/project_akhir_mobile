@@ -32,11 +32,9 @@ dependencies:
   flutter_map: 8.3.2
   latlong2: 0.10.1
   sensors_plus: 7.1.1
-  google_generative_ai: 0.4.7
   geolocator: ^14.0.2
   crypto: ^3.0.6
   encrypt: ^5.0.3
-  web3dart: ^2.7.3
 
 dev_dependencies:
   flutter_test:

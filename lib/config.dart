@@ -16,12 +16,6 @@ const List<String> kExpenseCategories = [
   'Lainnya',
 ];
 
-/// Gemini API Key untuk fitur StudyBuddy AI.
-/// Dapatkan secara gratis di https://aistudio.google.com/
-/// Kamu bisa mengganti kunci ini atau mengaturnya lewat dialog pengaturan (ikon ⚙️) di aplikasi.
-const String kGeminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
-const String kGeminiModel = 'gemini-3.8-flash';
-
 /// ID pemilik anggaran = akun yang sedang login. Id dari server berupa angka;
 /// jika bukan angka (mis. email), dibuat angka tetap dari teksnya supaya
 /// tiap akun tetap punya anggaran sendiri.

@@ -8,6 +8,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../core/current_user.dart';
 import '../data/app_db.dart';
+import '../data/models.dart';
 
 /// Status pengingat di HP, ditentukan oleh izin sistem DAN pilihan pengguna.
 enum NotifStatus {
@@ -17,8 +18,22 @@ enum NotifStatus {
   on, // izin ada dan pengingat aktif
 }
 
+/// Satu pengingat yang akan dijadwalkan ke sistem (di luar aplikasi).
+class PlannedReminder {
+  final int id;
+  final DateTime when;
+  final String title;
+  final String body;
+
+  /// True = pengingat susulan: deadline jatuh HARI INI tetapi jam 09.00 sudah
+  /// lewat (mis. tugas baru ditambahkan siang hari), jadi dibunyikan sebentar lagi.
+  final bool catchUp;
+
+  const PlannedReminder(this.id, this.when, this.title, this.body, {this.catchUp = false});
+}
+
 /// Notifikasi lokal: pengingat deadline checklist (3 hari, 1 hari, dan hari-H
-/// pukul 09.00, zona Asia/Jakarta) + sambutan sesudah login.
+/// pukul 09.00 + 17.00 bila belum selesai, zona Asia/Jakarta) + sambutan sesudah login.
 /// Pengingat dijadwalkan ulang otomatis setiap data berubah (checklist diubah,
 /// atau data baru masuk dari cloud).
 class NotificationService {
@@ -33,7 +48,15 @@ class NotificationService {
   /// Pengingat dikirim sekian hari sebelum deadline (0 = hari-H), pukul 09.00.
   static const reminderDays = [3, 1, 0];
   static const _hour = 9;
+
+  /// Pengingat kedua di hari-H untuk tugas yang masih belum selesai.
+  static const _eveningHour = 17;
   static const _testId = 2147000000;
+
+  // Id notifikasi = idChecklist * 10 + slot. Slot 0/1/3 = reminderDays,
+  // 5 = pengingat sore hari-H, 6 = pengingat susulan hari-H.
+  static const _slotEvening = 5;
+  static const _slotCatchUp = 6;
 
   /// Dipanggil saat notifikasi di HP diketuk (diatur di main.dart).
   VoidCallback? onTap;
@@ -224,7 +247,7 @@ class NotificationService {
     if (!_ready) return 0;
     try {
       final p = await _plugin.pendingNotificationRequests();
-      return p.where((e) => e.id != _testId).length;
+      return p.where((e) => e.id != _testId && e.id % 10 != _slotCatchUp).length;
     } catch (_) {
       return 0;
     }
@@ -254,6 +277,9 @@ class NotificationService {
     final pending = await _plugin.pendingNotificationRequests();
     for (final p in pending) {
       if (p.id == _testId) continue;
+      // Pengingat susulan (beberapa detik lagi) jangan dibatalkan oleh
+      // penjadwalan ulang berikutnya, kalau tidak ia tidak pernah muncul.
+      if (p.id % 10 == _slotCatchUp) continue;
       await _plugin.cancel(p.id);
     }
   }
@@ -298,6 +324,51 @@ class NotificationService {
     }
   }
 
+  /// Menyusun daftar pengingat dari checklist. Murni (tanpa plugin) supaya
+  /// mudah diuji. Pengingat yang waktunya sudah lewat tidak dimasukkan,
+  /// kecuali pengingat susulan hari-H.
+  static List<PlannedReminder> plan(List<ChecklistItem> items, DateTime now) {
+    final out = <PlannedReminder>[];
+    for (final it in items) {
+      if (it.done || it.deadline == null || it.id == null) continue;
+      final d = it.deadline!;
+      final body = '${it.title} (${it.category})';
+
+      for (final offset in reminderDays) {
+        final when = DateTime(d.year, d.month, d.day - offset, _hour);
+        if (!when.isAfter(now)) continue;
+        out.add(PlannedReminder(it.id! * 10 + offset, when, _titleFor(offset), body));
+      }
+
+      final isToday = d.year == now.year && d.month == now.month && d.day == now.day;
+      if (!isToday) continue;
+
+      final evening = DateTime(d.year, d.month, d.day, _eveningHour);
+      if (evening.isAfter(now)) {
+        out.add(PlannedReminder(
+          it.id! * 10 + _slotEvening,
+          evening,
+          'Deadline hari ini belum selesai',
+          body,
+        ));
+      }
+      final morning = DateTime(d.year, d.month, d.day, _hour);
+      if (!morning.isAfter(now)) {
+        out.add(PlannedReminder(
+          it.id! * 10 + _slotCatchUp,
+          now.add(const Duration(seconds: 5)),
+          _titleFor(0),
+          body,
+          catchUp: true,
+        ));
+      }
+    }
+    return out;
+  }
+
+  static String _ymd(DateTime t) =>
+      '${t.year}${t.month.toString().padLeft(2, '0')}${t.day.toString().padLeft(2, '0')}';
+
   Future<void> _doReschedule() async {
     await init();
     if (!_ready) return;
@@ -305,30 +376,28 @@ class NotificationService {
     if (CurrentUser.id == null) return; // belum login: tidak ada pengingat
     if (!await enabled || !await isGranted()) return;
 
+    final now = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
     final items = await AppDb.instance.checklist();
-    for (final it in items) {
-      if (it.done || it.deadline == null || it.id == null) continue;
-      final d = it.deadline!;
-      for (final offset in reminderDays) {
-        final when = DateTime(
-          d.year,
-          d.month,
-          d.day,
-          _hour,
-        ).subtract(Duration(days: offset));
-        if (!when.isAfter(DateTime.now())) continue;
-        await _plugin.zonedSchedule(
-          it.id! * 10 + offset,
-          _titleFor(offset),
-          '${it.title} (${it.category})',
-          tz.TZDateTime.from(when, tz.local),
-          _deadlineDetails,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
-          payload: 'deadline',
-        );
+    for (final r in plan(items, now)) {
+      if (r.catchUp) {
+        // Pengingat susulan cukup sekali per tugas per hari, bukan setiap
+        // aplikasi dibuka / data berubah.
+        final key = 'notif_catchup_${CurrentUser.id}_${r.id}_${_ymd(now)}';
+        if (prefs.getBool(key) ?? false) continue;
+        await prefs.setBool(key, true);
       }
+      await _plugin.zonedSchedule(
+        r.id,
+        r.title,
+        r.body,
+        tz.TZDateTime.from(r.when, tz.local),
+        _deadlineDetails,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'deadline',
+      );
     }
   }
 }

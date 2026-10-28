@@ -126,7 +126,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     final (title, text, icon, tone) = switch (_status) {
       NotifStatus.on => (
           'Pengingat di HP aktif',
-          'Kamu diingatkan 3 hari sebelum, 1 hari sebelum, dan pada hari deadline pukul 09.00, juga saat aplikasi ditutup.',
+          'Kamu diingatkan 3 hari sebelum, 1 hari sebelum, dan pada hari deadline (pukul 09.00, lalu 17.00 bila belum selesai), juga saat aplikasi ditutup.',
           Icons.notifications_active,
           kPrimary,
         ),
