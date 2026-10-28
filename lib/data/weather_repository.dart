@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
 class WeatherData {
@@ -6,6 +7,7 @@ class WeatherData {
   final String condition;
   final String clothingTip;
   final int weatherCode;
+  final int relativeHumidity;
   final double windSpeed;
   final DateTime fetchedAt;
 
@@ -14,6 +16,7 @@ class WeatherData {
     required this.condition,
     required this.clothingTip,
     required this.weatherCode,
+    required this.relativeHumidity,
     required this.windSpeed,
     required this.fetchedAt,
   });
@@ -29,6 +32,8 @@ class WeatherRepository {
 
   final http.Client _client;
 
+  void close() => _client.close();
+
   // Koordinat kota-kota tujuan studi
   static const Map<String, (double, double)> cityCoordinates = {
     'Edinburgh': (55.9533, -3.1883),
@@ -40,7 +45,10 @@ class WeatherRepository {
 
   /// Mengambil data cuaca real-time dari Open-Meteo
   Future<WeatherData> getWeatherForCity(String cityName) async {
-    final coords = cityCoordinates[cityName] ?? cityCoordinates['Edinburgh']!;
+    final coords = cityCoordinates[cityName];
+    if (coords == null) {
+      throw ArgumentError.value(cityName, 'cityName', 'Kota tidak didukung');
+    }
     return getWeather(coords.$1, coords.$2);
   }
 
@@ -49,37 +57,44 @@ class WeatherRepository {
       'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m',
     );
 
-    try {
-      final res = await _client.get(uri).timeout(const Duration(seconds: 6));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final current = data['current'] as Map<String, dynamic>;
-        final temp = (current['temperature_2m'] as num).toDouble();
-        final code = (current['weather_code'] as num).toInt();
-        final wind = (current['wind_speed_10m'] as num?)?.toDouble() ?? 0.0;
-
-        final condition = _interpretWmoCode(code);
-        final tip = _generateClothingTip(temp, code);
-
-        return WeatherData(
-          temperature: temp,
-          condition: condition,
-          clothingTip: tip,
-          weatherCode: code,
-          windSpeed: wind,
-          fetchedAt: DateTime.now(),
-        );
-      }
-    } catch (_) {
-      // Fallback aman jika offline atau koneksi lambat
+    final res = await _client.get(uri).timeout(const Duration(seconds: 6));
+    if (res.statusCode != 200) {
+      throw http.ClientException(
+        'Permintaan cuaca gagal (HTTP ${res.statusCode})',
+        uri,
+      );
     }
 
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map<String, dynamic> ||
+        decoded['current'] is! Map<String, dynamic>) {
+      throw const FormatException('Format respons cuaca tidak valid');
+    }
+
+    final current = decoded['current'] as Map<String, dynamic>;
+    final temperature = current['temperature_2m'];
+    final relativeHumidity = current['relative_humidity_2m'];
+    final weatherCode = current['weather_code'];
+    final windSpeed = current['wind_speed_10m'];
+    if (temperature is! num ||
+        relativeHumidity is! num ||
+        weatherCode is! num ||
+        windSpeed is! num) {
+      throw const FormatException('Data cuaca saat ini tidak lengkap');
+    }
+
+    final temp = temperature.toDouble();
+    final code = weatherCode.toInt();
+    final condition = _interpretWmoCode(code);
+    final tip = _generateClothingTip(temp, code);
+
     return WeatherData(
-      temperature: 17.0,
-      condition: 'Berawan Sejuk',
-      clothingTip: 'Mantel tipis disarankan',
-      weatherCode: 2,
-      windSpeed: 14.0,
+      temperature: temp,
+      condition: condition,
+      clothingTip: tip,
+      weatherCode: code,
+      relativeHumidity: relativeHumidity.toInt(),
+      windSpeed: windSpeed.toDouble(),
       fetchedAt: DateTime.now(),
     );
   }

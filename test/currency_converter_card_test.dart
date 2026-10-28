@@ -34,4 +34,28 @@ void main() {
 
     expect(find.text('Nonaktif'), findsOneWidget);
   });
+
+  testWidgets('nama Rupiah Indonesia tetap satu baris pada layar ponsel', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CurrencyConverterCard(repository: _FakeCurrencyRepository()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final labels = find.text('RUPIAH INDONESIA');
+    expect(labels, findsOneWidget);
+    for (final label in labels.evaluate()) {
+      expect(tester.getSize(find.byWidget(label.widget)).height, lessThan(16));
+    }
+  });
 }

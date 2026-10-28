@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../core/api_client.dart';
 import '../core/auth_service.dart';
 import '../core/user_events.dart';
+import '../data/universities.dart';
 import '../theme/app_theme.dart';
 import '../widgets/currency_converter_card.dart';
 import '../widgets/emergency_shortcut_card.dart';
 import '../widgets/studybuddy_ai_card.dart';
 import '../widgets/studytrip_app_bar.dart';
 import '../widgets/timezone_converter_card.dart';
+import '../widgets/weather_card.dart';
 
 /// Halaman Alat & Utilitas: Keuangan & Konversi, Waktu & Komunikasi, Sensor & Bantuan Lapangan.
 class ToolsPage extends StatefulWidget {
@@ -165,6 +167,10 @@ class _ToolsPageState extends State<ToolsPage> {
                 });
               }
             },
+          ),
+          const SizedBox(height: 12),
+          WeatherCard(
+            destinationCity: findUniversity(_destinationProgram)?.city,
           ),
 
           const SizedBox(height: 28),

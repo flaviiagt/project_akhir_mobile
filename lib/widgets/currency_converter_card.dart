@@ -43,7 +43,8 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
   String _to = 'IDR';
 
   // --- Gyroscope: putar HP untuk menukar arah konversi (FR-21) ---
-  static const double _spinThreshold = 2.0; // rad/s, perlu gerakan cepat yang disengaja
+  static const double _spinThreshold =
+      2.0; // rad/s, perlu gerakan cepat yang disengaja
   static const Duration _cooldown = Duration(seconds: 1);
   StreamSubscription<GyroscopeEvent>? _gyroSub;
   DateTime? _lastSpin;
@@ -236,7 +237,7 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
         _row(
           currency: _from,
           trailing: SizedBox(
-            width: 140,
+            width: 104,
             child: TextField(
               controller: _amountCtrl,
               textAlign: TextAlign.right,
@@ -335,8 +336,7 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
             Switch.adaptive(
               value: _motionSwapEnabled,
               onChanged: _gyroAvailable
-                  ? (enabled) =>
-                      setState(() => _motionSwapEnabled = enabled)
+                  ? (enabled) => setState(() => _motionSwapEnabled = enabled)
                   : null,
               activeTrackColor: _teal,
             ),
@@ -474,6 +474,8 @@ class _CurrencyConverterCardState extends State<CurrencyConverterCard> {
               children: [
                 Text(
                   _names[currency]!.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,

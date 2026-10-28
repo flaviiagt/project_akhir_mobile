@@ -217,8 +217,9 @@ class _FloatingLayerState extends State<_FloatingLayer> {
     final expanded = StudyBuddyFloating.expanded.value;
 
     final pw = min(size.width - 24, 380.0);
-    final ph = min(size.height * 0.65, 540.0);
     final minTop = pad.top + 8;
+    final availablePanelHeight = max(0.0, size.height - kb - minTop - 8);
+    final ph = min(min(size.height * 0.65, 540.0), availablePanelHeight);
 
     _bubblePos ??= Offset(
       size.width - _bubble - _edge,
