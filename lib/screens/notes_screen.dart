@@ -93,18 +93,26 @@ class _NotesScreenState extends State<NotesScreen> {
       ),
       body: Column(children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(children: [
-            for (final f in const [('semua', 'Semua'), ('catatan', 'Catatan'), ('program', 'Info Program')])
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(f.$2),
-                  selected: _filter == f.$1,
-                  onSelected: (_) => setState(() => _filter = f.$1),
-                ),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: SegmentedButton<String>(
+            expandedInsets: EdgeInsets.zero, // melebar penuh, tiga bagian sama lebar
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: kTealTint,
+              selectedForegroundColor: kPrimary,
+              visualDensity: VisualDensity.compact,
+            ),
+            segments: const [
+              ButtonSegment(value: 'semua', label: Text('Semua')),
+              ButtonSegment(value: 'catatan', label: Text('Catatan')),
+              ButtonSegment(
+                value: 'program',
+                label: Text('Info Program', maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
-          ]),
+            ],
+            selected: {_filter},
+            onSelectionChanged: (s) => setState(() => _filter = s.first),
+          ),
         ),
         Expanded(
           child: _loading

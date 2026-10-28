@@ -12,6 +12,7 @@ import '../services/notification_service.dart';
 import '../services/sync_service.dart';
 import 'current_user.dart';
 import 'profile_store.dart';
+import '../widgets/studybuddy_ai_card.dart';
 
 class AuthService {
   static const _s = FlutterSecureStorage();
@@ -113,6 +114,7 @@ class AuthService {
     await SyncService.instance.flush(); // kirim perubahan terakhir ke cloud
     await ApiClient.clearToken();
     ProfileStore.clear(); // foto/nama akun ini tidak lagi tampil
+    await StudyBuddyFloating.reset(); // riwayat chat StudyBuddy akun ini dihapus
     await CurrentUser.clear(); // data lokal akun ini tidak lagi terlihat
     await CloudAuth.signOut();
     await NotificationService.instance.cancelAll();

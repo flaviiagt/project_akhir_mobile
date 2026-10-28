@@ -63,3 +63,14 @@ export async function logUsage(
 ): Promise<void> {
   await admin.from("usage_log").insert({ user_id: userId, kind });
 }
+
+/** Batalkan jika [p] tidak selesai dalam [ms], supaya fungsi tidak menggantung diam-diam. */
+export function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timeout:${label}`)), ms);
+    Promise.resolve(p).then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
