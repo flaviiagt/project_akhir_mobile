@@ -1,10 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/current_user.dart';
 import '../data/gemini_service.dart';
 import '../data/translate_service.dart';
 import '../theme/app_theme.dart';
@@ -43,6 +47,13 @@ class StudyBuddyFloating {
     _entry?.remove();
     _entry = null;
     expanded.value = false;
+  }
+
+  /// Dipanggil saat logout: tutup jendela dan hapus riwayat chat akun ini.
+  static Future<void> reset() async {
+    hide();
+    GeminiService.instance.resetChat();
+    await _ChatStore.clear();
   }
 
   static void open() => expanded.value = true;
@@ -187,7 +198,13 @@ class _FloatingLayerState extends State<_FloatingLayer> {
     super.dispose();
   }
 
+  bool _wasExpanded = false;
+
   void _onChange() {
+    final now = StudyBuddyFloating.expanded.value;
+    // Setiap dibuka, jendela kembali ke tengah layar
+    if (now && !_wasExpanded) _panelPos = null;
+    _wasExpanded = now;
     if (mounted) setState(() {});
   }
 
@@ -209,7 +226,7 @@ class _FloatingLayerState extends State<_FloatingLayer> {
     );
     _panelPos ??= Offset(
       (size.width - pw) / 2,
-      size.height - pad.bottom - ph - 90,
+      (size.height - ph) / 2,
     );
 
     // posisi efektif jendela: naik otomatis bila keyboard muncul
@@ -332,23 +349,20 @@ class _ChatWindow extends StatefulWidget {
 class _ChatWindowState extends State<_ChatWindow> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  final List<_ChatMessage> _messages = [];
+  List<_ChatMessage> get _messages => _ChatStore.messages;
   bool _isLoading = false;
-
-  static const _welcome = _ChatMessage(
-    isAi: true,
-    text: 'Halo! Saya StudyBuddy AI 🤖✨.\n\n'
-        'Siap membantu seputar regulasi visa student, batas jam kerja, '
-        'aktivasi NHS, adaptasi kampus, dan hidup di luar negeri. '
-        'Ada yang ingin kamu tanyakan?\n\n'
-        '📷 Kamu juga bisa memotret tulisan berbahasa asing (papan, menu, surat) '
-        'lewat ikon kamera, nanti kuterjemahkan. Hindari memotret paspor atau data pribadi.',
-  );
 
   @override
   void initState() {
     super.initState();
-    _messages.add(_welcome);
+    // Riwayat ada di _ChatStore (bukan di widget ini), jadi tidak hilang saat
+    // jendela ditutup atau halaman berganti.
+    _ChatStore.ensureLoaded().then((_) {
+      if (mounted) {
+        setState(() {});
+        _scrollToBottom();
+      }
+    });
   }
 
   @override
@@ -378,6 +392,7 @@ class _ChatWindowState extends State<_ChatWindow> {
       _messages.add(_ChatMessage(isAi: false, text: trimmed));
       _isLoading = true;
     });
+    _ChatStore.save();
     _scrollToBottom();
 
     String response;
@@ -388,17 +403,18 @@ class _ChatWindowState extends State<_ChatWindow> {
           'Maaf, StudyBuddy sedang tidak bisa menjawab. Periksa koneksi internet lalu coba lagi.';
     }
 
+    _messages.add(_ChatMessage(isAi: true, text: response));
+    _ChatStore.save();
     if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-      _messages.add(_ChatMessage(isAi: true, text: response));
-    });
+    setState(() => _isLoading = false);
     _scrollToBottom();
   }
 
   void _addAi(String text) {
+    _messages.add(_ChatMessage(isAi: true, text: text));
+    _ChatStore.save();
     if (!mounted) return;
-    setState(() => _messages.add(_ChatMessage(isAi: true, text: text)));
+    setState(() {});
     _scrollToBottom();
   }
 
@@ -447,13 +463,13 @@ class _ChatWindowState extends State<_ChatWindow> {
       ));
       _isLoading = true;
     });
+    _ChatStore.save();
     _scrollToBottom();
 
     final result = await TranslateService.instance
         .translateImage(bytes, mimeType: _mimeOf(picked.name));
 
-    if (!mounted) return;
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
     _addAi(result);
   }
 
@@ -489,6 +505,7 @@ class _ChatWindowState extends State<_ChatWindow> {
                     text: 'Obrolan dibersihkan. Silakan tanya hal lain seputar visa dan studi!',
                   ));
               });
+              _ChatStore.save();
               Navigator.pop(ctx);
             },
             child: const Text('Hapus'),
@@ -780,11 +797,39 @@ class _Bubble extends StatelessWidget {
   }
 }
 
-class _TypingBubble extends StatelessWidget {
+class _TypingBubble extends StatefulWidget {
   const _TypingBubble();
 
   @override
+  State<_TypingBubble> createState() => _TypingBubbleState();
+}
+
+class _TypingBubbleState extends State<_TypingBubble> {
+  final _watch = Stopwatch()..start();
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final s = _watch.elapsed.inSeconds;
+    final label = s < 6
+        ? 'Gemini sedang berpikir...'
+        : s < 20
+            ? 'Masih diproses... $s dtk'
+            : 'Agak lama, server sedang sibuk... $s dtk';
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -794,10 +839,10 @@ class _TypingBubble extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
+            const SizedBox(
               width: 14,
               height: 14,
               child: CircularProgressIndicator(
@@ -805,10 +850,10 @@ class _TypingBubble extends StatelessWidget {
                 valueColor: AlwaysStoppedAnimation<Color>(ToolColors.teal),
               ),
             ),
-            SizedBox(width: 10),
+            const SizedBox(width: 10),
             Text(
-              'Gemini sedang berpikir...',
-              style: TextStyle(
+              label,
+              style: const TextStyle(
                 fontSize: 12.5,
                 color: ToolColors.slate,
                 fontStyle: FontStyle.italic,
@@ -854,4 +899,64 @@ class _ChatMessage {
   final String text;
   final Uint8List? image;
   const _ChatMessage({required this.isAi, required this.text, this.image});
+}
+
+const _welcomeMessage = _ChatMessage(
+  isAi: true,
+  text: 'Halo! Saya StudyBuddy AI 🤖✨.\n\n'
+      'Siap membantu seputar regulasi visa student, batas jam kerja, '
+      'aktivasi NHS, adaptasi kampus, dan hidup di luar negeri. '
+      'Ada yang ingin kamu tanyakan?\n\n'
+      '📷 Kamu juga bisa memotret tulisan berbahasa asing (papan, menu, surat) '
+      'lewat ikon kamera, nanti kuterjemahkan. Hindari memotret paspor atau data pribadi.',
+);
+
+/// Riwayat chat yang tahan lama: disimpan di memori (selamat dari penutupan
+/// jendela / pindah halaman) dan di perangkat per akun (selamat dari restart).
+/// Hanya teks yang disimpan, foto tidak.
+class _ChatStore {
+  static final List<_ChatMessage> messages = [];
+  static String? _owner;
+  static bool _loaded = false;
+  static const _max = 60;
+
+  static String get _key => 'studybuddy_chat_${CurrentUser.id ?? 'anon'}';
+
+  static Future<void> ensureLoaded() async {
+    final owner = CurrentUser.id;
+    if (_loaded && _owner == owner) return;
+    _loaded = true;
+    _owner = owner;
+    messages.clear();
+    try {
+      final raw = (await SharedPreferences.getInstance()).getString(_key);
+      if (raw != null) {
+        for (final e in jsonDecode(raw) as List) {
+          messages.add(_ChatMessage(isAi: e['ai'] == true, text: e['text'] as String));
+        }
+      }
+    } catch (_) {}
+    if (messages.isEmpty) messages.add(_welcomeMessage);
+  }
+
+  static Future<void> save() async {
+    try {
+      final recent = messages.length > _max ? messages.sublist(messages.length - _max) : messages;
+      await (await SharedPreferences.getInstance()).setString(
+        _key,
+        jsonEncode([for (final m in recent) {'ai': m.isAi, 'text': m.text}]),
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> clear() async {
+    try {
+      await (await SharedPreferences.getInstance()).remove(_key);
+    } catch (_) {}
+    messages
+      ..clear()
+      ..add(_welcomeMessage);
+    _loaded = true;
+    _owner = CurrentUser.id;
+  }
 }

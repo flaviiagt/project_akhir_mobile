@@ -10,9 +10,17 @@ import {
   logUsage,
   requireUser,
   underLimit,
+  withTimeout,
 } from "../_shared/common.ts";
 
 const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash";
+// Gemini 3.x "berpikir" dulu secara dinamis (lambat). "low" jauh lebih cepat dan
+// cukup untuk tanya-jawab ringkas. ("minimal" TIDAK didukung Gemini 3.8 Flash.)
+const THINKING = Deno.env.get("GEMINI_THINKING") ?? "low";
+const GEN_CONFIG = {
+  maxOutputTokens: 2048,
+  thinkingConfig: { thinkingLevel: THINKING },
+};
 
 const CHAT_PROMPT = `
 Kamu adalah StudyBuddy AI, asisten di aplikasi StudyTrip untuk mahasiswa dan pelajar Indonesia yang mempersiapkan atau menjalani studi di Inggris (UK) maupun luar negeri. Fokus utamamu adalah UK.
@@ -77,11 +85,18 @@ async function callGemini(body: unknown): Promise<{ status: number; data: any }>
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
   let last: { status: number; data: any } = { status: 500, data: {} };
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000), // jangan menggantung selamanya
+      });
+    } catch (e) {
+      last = { status: 504, data: { error: { message: String(e) } } };
+      break;
+    }
     const data = await res.json().catch(() => ({}));
     last = { status: res.status, data };
     // Server Gemini sibuk: coba lagi sebentar
@@ -96,6 +111,7 @@ async function callGemini(body: unknown): Promise<{ status: number; data: any }>
 
 function errorCode(status: number, data: any): string {
   const msg = JSON.stringify(data?.error ?? "");
+  if (status === 504) return "timeout";
   if (status === 503 || /UNAVAILABLE|overloaded|high demand/i.test(msg)) return "busy";
   if (status === 429 || /RESOURCE_EXHAUSTED|Quota/i.test(msg)) return "quota";
   if (status === 403 || /PERMISSION_DENIED|denied access/i.test(msg)) return "denied";
@@ -105,9 +121,23 @@ function errorCode(status: number, data: any): string {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method" }, 405);
+  try {
+    return await handle(req);
+  } catch (e) {
+    console.error("studybuddy error tak terduga:", String(e).slice(0, 300));
+    const timedOut = String(e).includes("timeout:");
+    return json({ error: timedOut ? "timeout" : "unavailable" }, timedOut ? 504 : 500);
+  }
+});
+
+async function handle(req: Request): Promise<Response> {
+  const tStart = Date.now();
+  const stage = (name: string) => console.log(`[studybuddy] ${name} +${Date.now() - tStart}ms`);
+  stage("mulai");
 
   const admin = adminClient();
-  const userId = await requireUser(req, admin);
+  const userId = await withTimeout(requireUser(req, admin), 10_000, "auth");
+  stage("auth selesai");
   if (!userId) return json({ error: "auth" }, 401);
 
   let input: any;
@@ -117,9 +147,9 @@ Deno.serve(async (req) => {
     return json({ error: "bad_request" }, 400);
   }
 
-  if (!(await underLimit(admin, userId, "ai", 60, 3600))) {
-    return json({ error: "rate_limit" }, 429);
-  }
+  const allowed = await withTimeout(underLimit(admin, userId, "ai", 60, 3600), 10_000, "batas");
+  stage("cek batas selesai");
+  if (!allowed) return json({ error: "rate_limit" }, 429);
 
   let payload: unknown;
   if (input?.mode === "translate") {
@@ -133,7 +163,7 @@ Deno.serve(async (req) => {
         role: "user",
         parts: [{ text: TRANSLATE_PROMPT }, { inlineData: { mimeType: mime, data: img } }],
       }],
-      generationConfig: { maxOutputTokens: 1024 },
+      generationConfig: GEN_CONFIG,
     };
   } else {
     const turns: Turn[] = Array.isArray(input?.messages) ? input.messages : [];
@@ -147,12 +177,15 @@ Deno.serve(async (req) => {
     payload = {
       systemInstruction: { parts: [{ text: CHAT_PROMPT }] },
       contents: valid.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
-      generationConfig: { maxOutputTokens: 1024 },
+      generationConfig: GEN_CONFIG,
     };
   }
 
-  await logUsage(admin, userId, "ai");
+  const logging = withTimeout(logUsage(admin, userId, "ai"), 10_000, "catat").catch(() => {});
+  stage("memanggil gemini");
   const { status, data } = await callGemini(payload);
+  await logging;
+  stage(`gemini ${MODEL} thinking=${THINKING} status=${status}`);
   if (status !== 200) {
     console.error("gemini", status, JSON.stringify(data?.error ?? data).slice(0, 300));
     return json({ error: errorCode(status, data) }, 502);
@@ -163,4 +196,4 @@ Deno.serve(async (req) => {
     .trim();
   if (!text) return json({ error: "empty" }, 200);
   return json({ text: cleanText(text) });
-});
+}
