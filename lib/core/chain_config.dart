@@ -1,6 +1,4 @@
-/// Pengaturan jaringan untuk Bukti Progres. Tidak ada rahasia di sini:
-/// penandatanganan transaksi dilakukan di server (Edge Function `seal-record`),
-/// aplikasi hanya MEMBACA jaringan untuk memverifikasi.
+
 
 /// Endpoint JSON-RPC publik (hanya untuk membaca / verifikasi).
 const String kChainRpcUrl = String.fromEnvironment(

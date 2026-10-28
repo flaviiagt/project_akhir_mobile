@@ -17,6 +17,8 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   local_auth: ^2.3.0
   image_picker: ^1.1.2
+  file_picker: ^10.3.10
+  url_launcher: ^6.3.2
   shared_preferences: ^2.3.2
   # Anggota 2 (checklist, itinerary, catatan, quiz, notifikasi)
   flutter_local_notifications: 17.2.4

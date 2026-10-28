@@ -7,9 +7,12 @@ Aplikasi persiapan studi ke luar negeri (Flutter + Supabase).
 Fitur **StudyBuddy AI** dan **Bukti Progres** berjalan lewat Supabase Edge
 Function, jadi pengguna akhir tidak perlu memasukkan API key atau wallet apa pun.
 Semua rahasia disimpan sebagai *secret* di server, bukan di aplikasi/repository.
+Dokumen checklist memakai bucket privat `checklist-documents`; migrasi membuat
+bucket dengan batas 10 MB serta metadata dan kebijakan akses yang membatasi file
+ke pemiliknya. Metadata disinkronkan agar lampiran tersedia lintas perangkat.
 
 ```bash
-# 1. buat tabel pencatat pemakaian + catatan segel
+# 1. buat tabel pencatat pemakaian + catatan segel + bucket dokumen privat
 supabase db push            # atau jalankan supabase/migrations/*.sql di SQL Editor
 
 # 2. simpan rahasia di server
@@ -32,6 +35,8 @@ Catatan:
   "layanan sedang tidak tersedia" ke pengguna dan pesan jelas di log fungsi.
 - Kedua fungsi hanya menerima pengguna yang sudah login dan dibatasi per pengguna
   (AI: 60 permintaan/jam, penyegelan: 10/hari; ubah di `supabase/functions/*/index.ts`).
+- Lampiran checklist menerima PDF/JPG/PNG/WEBP hingga 10 MB. File disimpan privat
+  di Supabase Storage; blockchain hanya mencatat hash, tidak pernah isi dokumen.
 
 ## Pengingat deadline
 

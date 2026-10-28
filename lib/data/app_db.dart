@@ -1,7 +1,9 @@
 import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+
 import '../core/current_user.dart';
 import '../services/sync_service.dart';
 import 'budget_schema.dart';
@@ -19,29 +21,40 @@ class AppDb {
   final Map<String, Future<void>> _seeding = {};
 
   /// Tabel yang disinkronkan (punya kolom rid, mtime, dirty, deleted).
-  static const syncedTables = ['checklist', 'itinerary', 'notes', 'quiz_scores'];
+  static const syncedTables = [
+    'checklist',
+    'itinerary',
+    'notes',
+    'quiz_scores',
+  ];
 
   /// Kunci pengaturan yang disinkronkan.
   static const syncedSettings = ['departure'];
 
   static const _epoch = '1970-01-01T00:00:00.000Z';
 
-  static String _nowIso() =>
-      DateTime.fromMillisecondsSinceEpoch(DateTime.now().millisecondsSinceEpoch, isUtc: true)
-          .toIso8601String();
+  static String _nowIso() => DateTime.fromMillisecondsSinceEpoch(
+    DateTime.now().millisecondsSinceEpoch,
+    isUtc: true,
+  ).toIso8601String();
 
   static String _newRid() {
     final r = Random.secure();
-    return List.generate(16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+    return List.generate(
+      16,
+      (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
   }
 
   Future<Database> get db async => _db ??= await _open();
 
   Future<Database> _open() async {
-    final path = kIsWeb ? 'studytrip.db' : join(await getDatabasesPath(), 'studytrip.db');
+    final path = kIsWeb
+        ? 'studytrip.db'
+        : join(await getDatabasesPath(), 'studytrip.db');
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
       onCreate: (d, v) => _createTables(d),
       onUpgrade: (d, oldV, newV) async {
@@ -51,15 +64,32 @@ class AppDb {
           await _createTables(d);
           return;
         }
-        if (oldV < 3) await _migrateV2toV3(d); // v2 -> v3: kolom sinkronisasi cloud
-        if (oldV < 4) await createBudgetTables(d); // v3 -> v4: tabel Anggaran (Anggota 3)
-        if (oldV < 5) await _createChainTables(d); // v4 -> v5: catatan blockchain
+        if (oldV < 3)
+          await _migrateV2toV3(d); // v2 -> v3: kolom sinkronisasi cloud
+        if (oldV < 4)
+          await createBudgetTables(d); // v3 -> v4: tabel Anggaran (Anggota 3)
+        if (oldV < 5)
+          await _createChainTables(d); // v4 -> v5: catatan blockchain
+        if (oldV < 6)
+          await _createChecklistDocumentTable(
+            d,
+          ); // v5 -> v6: metadata lampiran checklist
       },
     );
   }
 
   Future<void> _dropTables(Database d) async {
-    for (final t in ['chain_records', 'expenses', 'budgets', 'checklist', 'itinerary', 'notes', 'quiz_scores', 'settings']) {
+    for (final t in [
+      'checklist_documents',
+      'chain_records',
+      'expenses',
+      'budgets',
+      'checklist',
+      'itinerary',
+      'notes',
+      'quiz_scores',
+      'settings',
+    ]) {
       await d.execute('DROP TABLE IF EXISTS $t');
     }
   }
@@ -76,12 +106,16 @@ class AppDb {
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL,
       day TEXT NOT NULL, time TEXT NOT NULL, title TEXT NOT NULL,
       location TEXT, note TEXT, $_sync)''');
-    await d.execute('''CREATE TABLE notes(
+    await d.execute(
+      '''CREATE TABLE notes(
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL,
-      title TEXT NOT NULL, content TEXT, kind TEXT NOT NULL, updated_at TEXT, $_sync)''');
-    await d.execute('''CREATE TABLE quiz_scores(
+      title TEXT NOT NULL, content TEXT, kind TEXT NOT NULL, updated_at TEXT, $_sync)''',
+    );
+    await d.execute(
+      '''CREATE TABLE quiz_scores(
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL,
-      score INTEGER NOT NULL, total INTEGER NOT NULL, played_at TEXT NOT NULL, $_sync)''');
+      score INTEGER NOT NULL, total INTEGER NOT NULL, played_at TEXT NOT NULL, $_sync)''',
+    );
     await d.execute('''CREATE TABLE settings(
       user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT,
       mtime TEXT NOT NULL DEFAULT '$_epoch', dirty INTEGER NOT NULL DEFAULT 0,
@@ -91,6 +125,17 @@ class AppDb {
     }
     await createBudgetTables(d); // Anggota 3: Anggaran & Pengeluaran
     await _createChainTables(d); // Catatan blockchain
+    await _createChecklistDocumentTable(d);
+  }
+
+  Future<void> _createChecklistDocumentTable(Database d) async {
+    await d.execute('''CREATE TABLE IF NOT EXISTS checklist_documents(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL,
+      checklist_rid TEXT NOT NULL, file_name TEXT NOT NULL, storage_path TEXT NOT NULL,
+      content_type TEXT NOT NULL, file_hash TEXT NOT NULL, file_size INTEGER NOT NULL,
+      created_at TEXT NOT NULL)''');
+    await d.execute('''CREATE INDEX IF NOT EXISTS idx_checklist_documents_owner
+      ON checklist_documents(user_id, checklist_rid)''');
   }
 
   /// Catatan blockchain: payload tetap lokal, yang masuk jaringan hanya hash-nya.
@@ -109,15 +154,27 @@ class AppDb {
     for (final t in syncedTables) {
       await d.execute('ALTER TABLE $t ADD COLUMN rid TEXT');
       await d.execute('UPDATE $t SET rid = lower(hex(randomblob(16)))');
-      await d.execute("ALTER TABLE $t ADD COLUMN mtime TEXT NOT NULL DEFAULT '$_epoch'");
-      await d.execute('ALTER TABLE $t ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0');
-      await d.execute('ALTER TABLE $t ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0');
+      await d.execute(
+        "ALTER TABLE $t ADD COLUMN mtime TEXT NOT NULL DEFAULT '$_epoch'",
+      );
+      await d.execute(
+        'ALTER TABLE $t ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0',
+      );
+      await d.execute(
+        'ALTER TABLE $t ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+      );
       await d.execute("UPDATE $t SET mtime = '$now', dirty = 1");
       await d.execute('CREATE UNIQUE INDEX idx_${t}_rid ON $t(user_id, rid)');
     }
-    await d.execute("ALTER TABLE settings ADD COLUMN mtime TEXT NOT NULL DEFAULT '$_epoch'");
-    await d.execute('ALTER TABLE settings ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0');
-    await d.execute("UPDATE settings SET mtime = '$now', dirty = 1 WHERE key = 'departure'");
+    await d.execute(
+      "ALTER TABLE settings ADD COLUMN mtime TEXT NOT NULL DEFAULT '$_epoch'",
+    );
+    await d.execute(
+      'ALTER TABLE settings ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0',
+    );
+    await d.execute(
+      "UPDATE settings SET mtime = '$now', dirty = 1 WHERE key = 'departure'",
+    );
   }
 
   void _bump() => version.value++;
@@ -158,19 +215,47 @@ class AppDb {
   /// - perubahan/penghapusan pengguna (mtime baru) selalu mengalahkan data contoh.
   Future<void> _seed(String uid) async {
     final d = await db;
-    final done = await d.query('settings',
-        where: 'user_id = ? AND key = ?', whereArgs: [uid, 'seeded']);
+    final done = await d.query(
+      'settings',
+      where: 'user_id = ? AND key = ?',
+      whereArgs: [uid, 'seeded'],
+    );
     if (done.isNotEmpty) return;
 
     final now = DateTime.now();
-    DateTime plus(int days) => DateTime(now.year, now.month, now.day).add(Duration(days: days));
+    DateTime plus(int days) =>
+        DateTime(now.year, now.month, now.day).add(Duration(days: days));
     final seed = <ChecklistItem>[
-      ChecklistItem(title: 'Perpanjang/buat paspor', category: 'Dokumen', deadline: plus(14)),
-      ChecklistItem(title: 'Tes bahasa Inggris (IELTS)', category: 'Akademik', deadline: plus(45)),
-      ChecklistItem(title: 'Unggah bukti keuangan (CAS)', category: 'Keuangan', deadline: plus(30)),
-      ChecklistItem(title: 'Ajukan visa pelajar', category: 'Dokumen', deadline: plus(75)),
-      ChecklistItem(title: 'Pesan akomodasi', category: 'Akomodasi', deadline: plus(60)),
-      ChecklistItem(title: 'Beli asuransi perjalanan', category: 'Kesehatan', deadline: plus(90)),
+      ChecklistItem(
+        title: 'Perpanjang/buat paspor',
+        category: 'Dokumen',
+        deadline: plus(14),
+      ),
+      ChecklistItem(
+        title: 'Tes bahasa Inggris (IELTS)',
+        category: 'Akademik',
+        deadline: plus(45),
+      ),
+      ChecklistItem(
+        title: 'Unggah bukti keuangan (CAS)',
+        category: 'Keuangan',
+        deadline: plus(30),
+      ),
+      ChecklistItem(
+        title: 'Ajukan visa pelajar',
+        category: 'Dokumen',
+        deadline: plus(75),
+      ),
+      ChecklistItem(
+        title: 'Pesan akomodasi',
+        category: 'Akomodasi',
+        deadline: plus(60),
+      ),
+      ChecklistItem(
+        title: 'Beli asuransi perjalanan',
+        category: 'Kesehatan',
+        deadline: plus(90),
+      ),
     ];
     await d.transaction((txn) async {
       final b = txn.batch();
@@ -184,8 +269,13 @@ class AppDb {
           'deleted': 0,
         });
       }
-      b.insert('settings',
-          {'user_id': uid, 'key': 'departure', 'value': '2027-09-15', 'mtime': _epoch, 'dirty': 0});
+      b.insert('settings', {
+        'user_id': uid,
+        'key': 'departure',
+        'value': '2027-09-15',
+        'mtime': _epoch,
+        'dirty': 0,
+      });
       b.insert('settings', {'user_id': uid, 'key': 'seeded', 'value': '1'});
       await b.commit(noResult: true);
     });
@@ -193,12 +283,19 @@ class AppDb {
 
   // ---------- Operasi data (selalu dibatasi ke akun aktif) ----------
 
-  Future<List<Map<String, Object?>>> query(String table, {String? orderBy}) async {
+  Future<List<Map<String, Object?>>> query(
+    String table, {
+    String? orderBy,
+  }) async {
     final uid = await _uidReady();
     if (uid == null) return [];
     final notDeleted = syncedTables.contains(table) ? ' AND deleted = 0' : '';
-    return (await db).query(table,
-        where: 'user_id = ?$notDeleted', whereArgs: [uid], orderBy: orderBy);
+    return (await db).query(
+      table,
+      where: 'user_id = ?$notDeleted',
+      whereArgs: [uid],
+      orderBy: orderBy,
+    );
   }
 
   Future<int> insert(String table, Map<String, Object?> values) async {
@@ -223,7 +320,12 @@ class AppDb {
       row['mtime'] = _nowIso();
       row['dirty'] = 1;
     }
-    await (await db).update(table, row, where: 'id = ? AND user_id = ?', whereArgs: [id, uid]);
+    await (await db).update(
+      table,
+      row,
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, uid],
+    );
     _bump();
     SyncService.instance.requestSync();
   }
@@ -232,10 +334,18 @@ class AppDb {
   Future<void> delete(String table, int id) async {
     final uid = await _uidOrThrow();
     if (syncedTables.contains(table)) {
-      await (await db).update(table, {'deleted': 1, 'dirty': 1, 'mtime': _nowIso()},
-          where: 'id = ? AND user_id = ?', whereArgs: [id, uid]);
+      await (await db).update(
+        table,
+        {'deleted': 1, 'dirty': 1, 'mtime': _nowIso()},
+        where: 'id = ? AND user_id = ?',
+        whereArgs: [id, uid],
+      );
     } else {
-      await (await db).delete(table, where: 'id = ? AND user_id = ?', whereArgs: [id, uid]);
+      await (await db).delete(
+        table,
+        where: 'id = ? AND user_id = ?',
+        whereArgs: [id, uid],
+      );
     }
     _bump();
     SyncService.instance.requestSync();
@@ -244,30 +354,30 @@ class AppDb {
   Future<String?> getSetting(String key) async {
     final uid = await _uidReady();
     if (uid == null) return null;
-    final r = await (await db).query('settings',
-        where: 'user_id = ? AND key = ?', whereArgs: [uid, key]);
+    final r = await (await db).query(
+      'settings',
+      where: 'user_id = ? AND key = ?',
+      whereArgs: [uid, key],
+    );
     return r.isEmpty ? null : r.first['value'] as String?;
   }
 
   Future<void> setSetting(String key, String value) async {
     final uid = await _uidOrThrow();
     final synced = syncedSettings.contains(key);
-    await (await db).insert(
-        'settings',
-        {
-          'user_id': uid,
-          'key': key,
-          'value': value,
-          if (synced) 'mtime': _nowIso(),
-          if (synced) 'dirty': 1,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await (await db).insert('settings', {
+      'user_id': uid,
+      'key': key,
+      'value': value,
+      if (synced) 'mtime': _nowIso(),
+      if (synced) 'dirty': 1,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     _bump();
     if (synced) SyncService.instance.requestSync();
   }
 
-  Future<List<ChecklistItem>> checklist() async => (await query('checklist',
-          orderBy: 'done ASC, deadline IS NULL, deadline ASC'))
-      .map(ChecklistItem.fromMap)
-      .toList();
+  Future<List<ChecklistItem>> checklist() async => (await query(
+    'checklist',
+    orderBy: 'done ASC, deadline IS NULL, deadline ASC',
+  )).map(ChecklistItem.fromMap).toList();
 }

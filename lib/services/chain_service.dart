@@ -44,17 +44,18 @@ class ChainRecord {
   });
 
   factory ChainRecord.fromMap(Map<String, Object?> m) => ChainRecord(
-        id: m['id'] as int,
-        kind: m['kind'] as String,
-        title: m['title'] as String,
-        payload: m['payload'] as String,
-        hash: m['hash'] as String,
-        txHash: m['tx_hash'] as String?,
-        status: m['status'] as String,
-        blockNumber: m['block_number'] as int?,
-        error: m['error'] as String?,
-        createdAt: DateTime.tryParse((m['created_at'] as String?) ?? '') ?? DateTime.now(),
-      );
+    id: m['id'] as int,
+    kind: m['kind'] as String,
+    title: m['title'] as String,
+    payload: m['payload'] as String,
+    hash: m['hash'] as String,
+    txHash: m['tx_hash'] as String?,
+    status: m['status'] as String,
+    blockNumber: m['block_number'] as int?,
+    error: m['error'] as String?,
+    createdAt:
+        DateTime.tryParse((m['created_at'] as String?) ?? '') ?? DateTime.now(),
+  );
 
   String get explorerUrl => '$kChainExplorerTx$txHash';
 }
@@ -84,13 +85,15 @@ class ChainService {
 
   // ---------- util ----------
 
-  static String sha256Hex(String s) => sha256.convert(utf8.encode(s)).toString();
+  static String sha256Hex(String s) =>
+      sha256.convert(utf8.encode(s)).toString();
 
   static String _toHex(List<int> bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
   /// Penanda akun yang tidak membocorkan id asli (hash, dipotong).
-  String _userTag() => sha256Hex('studytrip:${CurrentUser.id ?? ''}').substring(0, 16);
+  String _userTag() =>
+      sha256Hex('studytrip:${CurrentUser.id ?? ''}').substring(0, 16);
 
   String _friendly(Object e) {
     if (e is ChainException) return e.message;
@@ -111,7 +114,12 @@ class ChainService {
         .post(
           Uri.parse(kChainRpcUrl),
           headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}),
+          body: jsonEncode({
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': method,
+            'params': params,
+          }),
         )
         .timeout(const Duration(seconds: 20));
     final j = jsonDecode(res.body);
@@ -125,7 +133,10 @@ class ChainService {
   Future<_Receipt?> _receipt(String tx) async {
     final r = await _rpc('eth_getTransactionReceipt', [tx]);
     if (r is! Map) return null; // belum masuk blok
-    final block = int.parse((r['blockNumber'] as String).substring(2), radix: 16);
+    final block = int.parse(
+      (r['blockNumber'] as String).substring(2),
+      radix: 16,
+    );
     return _Receipt(r['status'] == '0x1', block);
   }
 
@@ -140,7 +151,8 @@ class ChainService {
     }
     if (client.auth.currentSession == null) {
       throw ChainException(
-          'Fitur ini butuh akun yang tersambung ke cloud. Coba keluar lalu masuk lagi saat internet aktif.');
+        'Fitur ini butuh akun yang tersambung ke cloud. Coba keluar lalu masuk lagi saat internet aktif.',
+      );
     }
     try {
       final res = await client.functions
@@ -154,7 +166,8 @@ class ChainService {
     } on FunctionException catch (e) {
       final code = e.details is Map ? (e.details as Map)['error'] : null;
       throw ChainException(switch (code) {
-        'rate_limit' => 'Batas penyegelan hari ini sudah tercapai. Coba lagi besok.',
+        'rate_limit' =>
+          'Batas penyegelan hari ini sudah tercapai. Coba lagi besok.',
         'auth' => 'Sesi cloud berakhir. Coba keluar lalu masuk lagi.',
         _ => 'Layanan penyegelan sedang tidak tersedia. Coba lagi nanti.',
       });
@@ -163,15 +176,16 @@ class ChainService {
 
   // ---------- catat ----------
 
-  Future<List<ChainRecord>> records() async =>
-      (await AppDb.instance.query('chain_records', orderBy: 'id DESC'))
-          .map(ChainRecord.fromMap)
-          .toList();
+  Future<List<ChainRecord>> records() async => (await AppDb.instance.query(
+    'chain_records',
+    orderBy: 'id DESC',
+  )).map(ChainRecord.fromMap).toList();
 
   /// Catat snapshot progres checklist akun yang sedang login.
   Future<void> recordChecklist() async {
     final items = await AppDb.instance.checklist();
-    if (items.isEmpty) throw ChainException('Checklist masih kosong, tidak ada yang dicatat.');
+    if (items.isEmpty)
+      throw ChainException('Checklist masih kosong, tidak ada yang dicatat.');
     final sorted = [...items]..sort((a, b) => a.title.compareTo(b.title));
     final done = sorted.where((e) => e.done).length;
     final payload = jsonEncode({
@@ -183,16 +197,45 @@ class ChainService {
       'total': sorted.length,
       'items': [
         for (final e in sorted)
-          {'t': e.title, 'c': e.category, 'd': fmtDate(e.deadline), 'x': e.done},
+          {
+            't': e.title,
+            'c': e.category,
+            'd': fmtDate(e.deadline),
+            'x': e.done,
+          },
       ],
     });
-    await record(kind: 'checklist', title: 'Progres checklist $done/${sorted.length}', payload: payload);
+    await record(
+      kind: 'checklist',
+      title: 'Progres checklist $done/${sorted.length}',
+      payload: payload,
+    );
+  }
+
+  /// Segel bukti kepemilikan dokumen tanpa mengirim isi atau nama file.
+  Future<void> recordDocument({required String fileHash}) async {
+    final payload = jsonEncode({
+      'v': 1,
+      'kind': 'document',
+      'user': _userTag(),
+      'at': DateTime.now().toUtc().toIso8601String(),
+      'documentHash': fileHash,
+    });
+    await record(
+      kind: 'document',
+      title: 'Bukti dokumen checklist',
+      payload: payload,
+    );
   }
 
   /// Catat skor quiz terbaik.
   Future<void> recordQuiz() async {
-    final rows = await AppDb.instance.query('quiz_scores', orderBy: 'score DESC, played_at DESC');
-    if (rows.isEmpty) throw ChainException('Belum ada skor quiz. Mainkan Travel Quiz dulu.');
+    final rows = await AppDb.instance.query(
+      'quiz_scores',
+      orderBy: 'score DESC, played_at DESC',
+    );
+    if (rows.isEmpty)
+      throw ChainException('Belum ada skor quiz. Mainkan Travel Quiz dulu.');
     final r = rows.first;
     final payload = jsonEncode({
       'v': 1,
@@ -203,11 +246,19 @@ class ChainService {
       'total': r['total'],
       'played_at': r['played_at'],
     });
-    await record(kind: 'quiz', title: 'Skor quiz ${r['score']}/${r['total']}', payload: payload);
+    await record(
+      kind: 'quiz',
+      title: 'Skor quiz ${r['score']}/${r['total']}',
+      payload: payload,
+    );
   }
 
   /// API umum: fitur lain (mis. Anggaran) cukup memanggil ini dengan payload JSON.
-  Future<void> record({required String kind, required String title, required String payload}) async {
+  Future<void> record({
+    required String kind,
+    required String title,
+    required String payload,
+  }) async {
     final hash = sha256Hex(payload);
     final id = await AppDb.instance.insert('chain_records', {
       'kind': kind,
@@ -231,10 +282,17 @@ class ChainService {
   Future<void> _submit(int id, String hash) async {
     try {
       final tx = await _send(hash);
-      await AppDb.instance.update('chain_records', id, {'tx_hash': tx, 'status': 'pending', 'error': null});
+      await AppDb.instance.update('chain_records', id, {
+        'tx_hash': tx,
+        'status': 'pending',
+        'error': null,
+      });
       unawaited(_waitConfirmed(id, tx));
     } catch (e) {
-      await AppDb.instance.update('chain_records', id, {'status': 'failed', 'error': _friendly(e)});
+      await AppDb.instance.update('chain_records', id, {
+        'status': 'failed',
+        'error': _friendly(e),
+      });
     }
   }
 
@@ -289,19 +347,27 @@ class ChainService {
     }
     lines.add('Hash data cocok:\n${r.hash}');
     if (r.txHash == null) {
-      return ChainVerification(false, 'Belum tersegel', [...lines, 'Catatan ini belum terkirim ke jaringan.']);
+      return ChainVerification(false, 'Belum tersegel', [
+        ...lines,
+        'Catatan ini belum terkirim ke jaringan.',
+      ]);
     }
     try {
       final tx = await _rpc('eth_getTransactionByHash', [r.txHash]);
       if (tx is! Map) {
-        return ChainVerification(false, 'Segel tidak ditemukan',
-            [...lines, 'Jaringan tidak mengenali transaksi ${r.txHash}.']);
+        return ChainVerification(false, 'Segel tidak ditemukan', [
+          ...lines,
+          'Jaringan tidak mengenali transaksi ${r.txHash}.',
+        ]);
       }
       if (tx['blockNumber'] == null) {
-        return ChainVerification(false, 'Segel masih diproses',
-            [...lines, 'Transaksi sudah dikirim tetapi belum masuk blok. Coba lagi sebentar lagi.']);
+        return ChainVerification(false, 'Segel masih diproses', [
+          ...lines,
+          'Transaksi sudah dikirim tetapi belum masuk blok. Coba lagi sebentar lagi.',
+        ]);
       }
-      final input = ((tx['input'] ?? tx['data']) as String? ?? '').toLowerCase();
+      final input = ((tx['input'] ?? tx['data']) as String? ?? '')
+          .toLowerCase();
       final expected = '0x${_toHex(utf8.encode(kChainDataPrefix))}${r.hash}';
       if (input != expected) {
         return ChainVerification(false, 'Isi segel tidak cocok', [
@@ -314,14 +380,26 @@ class ChainService {
       lines.add('Isi transaksi di blockchain cocok dengan hash.');
       final rc = await _receipt(r.txHash!);
       if (rc == null || !rc.success) {
-        return ChainVerification(false, 'Segel belum berhasil', [...lines, 'Status transaksi di jaringan: gagal atau belum final.']);
+        return ChainVerification(false, 'Segel belum berhasil', [
+          ...lines,
+          'Status transaksi di jaringan: gagal atau belum final.',
+        ]);
       }
       lines.add('Terkonfirmasi di blok ${rc.block}.');
       try {
-        final b = await _rpc('eth_getBlockByNumber', ['0x${rc.block.toRadixString(16)}', false]);
+        final b = await _rpc('eth_getBlockByNumber', [
+          '0x${rc.block.toRadixString(16)}',
+          false,
+        ]);
         if (b is Map && b['timestamp'] is String) {
-          final ts = int.parse((b['timestamp'] as String).substring(2), radix: 16);
-          final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000, isUtc: true).toLocal();
+          final ts = int.parse(
+            (b['timestamp'] as String).substring(2),
+            radix: 16,
+          );
+          final t = DateTime.fromMillisecondsSinceEpoch(
+            ts * 1000,
+            isUtc: true,
+          ).toLocal();
           lines.add('Waktu blok: ${t.toString().split('.').first}');
         }
       } catch (_) {}
@@ -329,7 +407,10 @@ class ChainService {
       lines.add('Tx: ${r.txHash}');
       return ChainVerification(true, 'Asli dan tidak berubah', lines);
     } catch (e) {
-      return ChainVerification(false, 'Belum bisa memeriksa', [...lines, _friendly(e)]);
+      return ChainVerification(false, 'Belum bisa memeriksa', [
+        ...lines,
+        _friendly(e),
+      ]);
     }
   }
 }
