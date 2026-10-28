@@ -54,8 +54,8 @@ class _LoginPageState extends State<LoginPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
-  /// Tanya izin notifikasi per akun: Izinkan / Tolak disimpan di HP ini,
-  /// "Nanti" ditanya lagi saat login berikutnya.
+  // Tanya izin notifikasi per akun: Izinkan / Tolak disimpan di HP ini,
+  // "Nanti" ditanya lagi saat login berikutnya.
   Future<void> _welcomeWithConsent(String? name) async {
     if (!mounted) return;
     final uid = CurrentUser.id;

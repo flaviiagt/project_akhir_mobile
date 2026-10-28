@@ -8,7 +8,6 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'core/app_routes.dart';
 import 'core/app_theme.dart';
 import 'core/current_user.dart';
-import 'core/idle_guard.dart';
 import 'data/app_db.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/register_page.dart';
@@ -87,8 +86,6 @@ class StudyTripApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      builder: (context, child) =>
-          IdleSessionGuard(child: child ?? const SizedBox.shrink()),
       initialRoute: '/',
       routes: {
         '/': (_) => const SplashPage(),

@@ -4,7 +4,6 @@ import '../../../core/api_client.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/auth_service.dart';
 import '../../../core/current_user.dart';
-import '../../../core/idle_guard.dart';
 import '../../../services/notification_service.dart';
 
 class SplashPage extends StatefulWidget {
@@ -23,11 +22,7 @@ class _SplashPageState extends State<SplashPage> {
   Future<void> _check() async {
     await Future.delayed(const Duration(milliseconds: 900));
     String route = '/login';
-    var token = await ApiClient.token;
-    if (token != null && await IdleSessionGuard.isExpired()) {
-      await AuthService.logout(); // app sempat ditutup lebih dari batas idle
-      token = null;
-    }
+    final token = await ApiClient.token;
     if (token != null) {
       try {
         await AuthService.me(redirect: false);
