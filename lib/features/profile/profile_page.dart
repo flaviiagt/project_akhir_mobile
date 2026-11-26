@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -26,7 +26,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _loading = true;
   bool _bioEnabled = false;
   bool _bioAvailable = false;
-  int _photoVersion = DateTime.now().millisecondsSinceEpoch;
+  static int _photoVersion = DateTime.now().millisecondsSinceEpoch;
   DateTime? _departure;
 
   @override
@@ -40,23 +40,54 @@ class _ProfilePageState extends State<ProfilePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
-  Future<void> _load() async {
+  Future<T> _safe<T>(Future<T> f, T fallback, String tag) async {
     try {
-      final u = await AuthService.me();
-      final en = await AuthService.isBiometricEnabled();
-      final av = await AuthService.biometricAvailable();
-      final dep = await AppDb.instance.getSetting('departure');
+      return await f.timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('[profil] $tag gagal: $e');
+      return fallback;
+    }
+  }
+
+  Future<void> _load() async {
+    final sw = Stopwatch()..start();
+    void log(String m) => debugPrint('[profil] $m +${sw.elapsedMilliseconds}ms');
+    try {
+      // 1. Data tersimpan di HP (cepat, tanpa internet), jalan bersamaan.
+      final (cached, en, av, dep) = await (
+        _safe(AuthService.cachedUser(), null, 'cache'),
+        _safe(AuthService.isBiometricEnabled(), false, 'bioEnabled'),
+        _safe(AuthService.biometricAvailable(), false, 'bioAvailable'),
+        _safe(AppDb.instance.getSetting('departure'), null, 'departure'),
+      ).wait;
+      log('lokal selesai (ada cache: ${cached != null})');
       if (!mounted) return;
       setState(() {
-        _user = u;
+        if (_user == null && cached != null) {
+          _user = cached;
+          _loading = false; // halaman langsung tampil
+        }
         _bioEnabled = en;
         _bioAvailable = av;
         _departure = dep == null ? null : DateTime.tryParse(dep);
-        _loading = false;
       });
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _loading = false);
-      _snack(e.message);
+
+      // 2. Segarkan dari server di belakang layar (maks 20 detik).
+      try {
+        final u = await AuthService.me().timeout(const Duration(seconds: 20));
+        log('server selesai');
+        if (!mounted) return;
+        setState(() => _user = u);
+      } on ApiException catch (e) {
+        log('server gagal: ${e.message}');
+        if (_user == null) _snack(e.message);
+      }
+    } catch (e, st) {
+      debugPrint('[profil] error tak terduga: $e\n$st');
+      if (_user == null) _snack('Gagal memuat profil');
+    } finally {
+      // Apa pun yang terjadi, spinner harus berhenti.
+      if (mounted && _loading) setState(() => _loading = false);
     }
   }
 

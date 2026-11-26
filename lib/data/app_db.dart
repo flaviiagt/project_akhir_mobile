@@ -267,7 +267,7 @@ class AppDb {
           'mtime': _epoch,
           'dirty': 0,
           'deleted': 0,
-        });
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
       b.insert('settings', {
         'user_id': uid,
@@ -275,8 +275,12 @@ class AppDb {
         'value': '2027-09-15',
         'mtime': _epoch,
         'dirty': 0,
-      });
-      b.insert('settings', {'user_id': uid, 'key': 'seeded', 'value': '1'});
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      b.insert('settings', {
+        'user_id': uid,
+        'key': 'seeded',
+        'value': '1',
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
       await b.commit(noResult: true);
     });
   }

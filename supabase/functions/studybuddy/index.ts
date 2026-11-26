@@ -13,14 +13,18 @@ import {
   withTimeout,
 } from "../_shared/common.ts";
 
-const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash";
-// Gemini 3.x "berpikir" dulu secara dinamis (lambat). "low" jauh lebih cepat dan
-// cukup untuk tanya-jawab ringkas. ("minimal" TIDAK didukung Gemini 3.8 Flash.)
-const THINKING = Deno.env.get("GEMINI_THINKING") ?? "low";
-const GEN_CONFIG = {
-  maxOutputTokens: 2048,
-  thinkingConfig: { thinkingLevel: THINKING },
-};
+const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite"; // chat
+const TRANSLATE_MODEL = Deno.env.get("GEMINI_TRANSLATE_MODEL") ?? "gemini-3.5-flash"; // terjemah foto
+const FALLBACK_MODEL = Deno.env.get("GEMINI_FALLBACK_MODEL") ?? "gemini-3.5-flash-lite";
+const THINKING = Deno.env.get("GEMINI_THINKING") ?? "minimal";
+
+function genConfig(model: string): Record<string, unknown> {
+  const base = { maxOutputTokens: 1024, temperature: 0.4 };
+  // Gemini 2.5 pakai thinkingBudget, Gemini 3.x pakai thinkingLevel
+  return /2\.5/.test(model)
+    ? { ...base, thinkingConfig: { thinkingBudget: 0 } }
+    : { ...base, thinkingConfig: { thinkingLevel: THINKING } };
+}
 
 const CHAT_PROMPT = `
 Kamu adalah StudyBuddy AI, asisten di aplikasi StudyTrip untuk mahasiswa dan pelajar Indonesia yang mempersiapkan atau menjalani studi di Inggris (UK) maupun luar negeri. Fokus utamamu adalah UK.
@@ -78,33 +82,48 @@ function cleanText(t: string): string {
     .trim();
 }
 
-async function callGemini(body: unknown): Promise<{ status: number; data: any }> {
+type GeminiResult = { status: number; data: any; model: string };
+
+async function callOnce(model: string, body: unknown, timeoutMs: number): Promise<GeminiResult> {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!apiKey) return { status: 500, data: { error: { message: "no_key" } } };
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-  let last: { status: number; data: any } = { status: 500, data: {} };
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30_000), // jangan menggantung selamanya
-      });
-    } catch (e) {
-      last = { status: 504, data: { error: { message: String(e) } } };
+  if (!apiKey) return { status: 500, data: { error: { message: "no_key" } }, model };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, data, model };
+  } catch (e) {
+    return { status: 504, data: { error: { message: String(e) } }, model };
+  }
+}
+
+async function callGemini(
+  payload: Record<string, unknown>,
+  primary: string,
+): Promise<GeminiResult> {
+  const models = [primary, FALLBACK_MODEL].filter((m, i, a) => m && a.indexOf(m) === i);
+  let last: GeminiResult = { status: 500, data: {}, model: primary };
+  for (const model of models) {
+    let cfg = genConfig(model);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      last = await callOnce(model, { ...payload, generationConfig: cfg }, 15_000);
+      if (last.status === 200) return last;
+      const msg = JSON.stringify(last.data?.error ?? "");
+      // Model tidak mendukung level thinking itu: ulangi tanpa thinkingConfig
+      if (last.status === 400 && /thinking/i.test(msg) && cfg.thinkingConfig) {
+        const { thinkingConfig: _drop, ...rest } = cfg;
+        cfg = rest;
+        continue;
+      }
       break;
     }
-    const data = await res.json().catch(() => ({}));
-    last = { status: res.status, data };
-    // Server Gemini sibuk: coba lagi sebentar
-    if (res.status === 503 && attempt < 3) {
-      await new Promise((r) => setTimeout(r, attempt * 2000));
-      continue;
-    }
-    break;
+    // Error sementara atau model hilang (404): coba model cadangan
+    if (![404, 429, 500, 502, 503, 504].includes(last.status)) break;
   }
   return last;
 }
@@ -151,7 +170,7 @@ async function handle(req: Request): Promise<Response> {
   stage("cek batas selesai");
   if (!allowed) return json({ error: "rate_limit" }, 429);
 
-  let payload: unknown;
+  let payload: Record<string, unknown>;
   if (input?.mode === "translate") {
     const img = String(input.image ?? "");
     const mime = String(input.mime ?? "image/jpeg");
@@ -163,7 +182,6 @@ async function handle(req: Request): Promise<Response> {
         role: "user",
         parts: [{ text: TRANSLATE_PROMPT }, { inlineData: { mimeType: mime, data: img } }],
       }],
-      generationConfig: GEN_CONFIG,
     };
   } else {
     const turns: Turn[] = Array.isArray(input?.messages) ? input.messages : [];
@@ -177,15 +195,15 @@ async function handle(req: Request): Promise<Response> {
     payload = {
       systemInstruction: { parts: [{ text: CHAT_PROMPT }] },
       contents: valid.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
-      generationConfig: GEN_CONFIG,
     };
   }
 
   const logging = withTimeout(logUsage(admin, userId, "ai"), 10_000, "catat").catch(() => {});
   stage("memanggil gemini");
-  const { status, data } = await callGemini(payload);
+  const primary = input?.mode === "translate" ? TRANSLATE_MODEL : MODEL;
+  const { status, data, model } = await callGemini(payload, primary);
   await logging;
-  stage(`gemini ${MODEL} thinking=${THINKING} status=${status}`);
+  stage(`gemini ${model} status=${status}`);
   if (status !== 200) {
     console.error("gemini", status, JSON.stringify(data?.error ?? data).slice(0, 300));
     return json({ error: errorCode(status, data) }, 502);
